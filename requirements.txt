@@ -1,0 +1,25 @@
+# freease — Attack Surface Management Tool
+# by: Kodok-Kejepit
+# Install: pip install -r requirements.txt
+
+aiohttp>=3.9.0
+dnspython>=2.4.0
+rich>=13.7.0
+
+# Modul YouTube (-y). Update rutin: pip install -U yt-dlp
+yt-dlp>=2025.1.1
+mutagen>=1.47.0
+
+# Modul URL Safety Scanner (-s): hanya pakai pustaka standar Python, tanpa
+# dependensi pip tambahan. Flag --urlhaus & --safebrowsing-key opsional (online).
+
+# Modul Media Player (-p): memakai binary sistem (bukan pip). Pasang salah satu;
+# mpv paling direkomendasikan karena bisa memutar video langsung di terminal.
+
+# Tool sistem (bukan pip):
+#   ffmpeg   — gabung video+audio, konversi mp3, ffprobe metadata → sudo apt install ffmpeg
+#   mpv      — pemutar -p terbaik; video di terminal (--vo=tct)    → sudo apt install mpv  /  pkg install mpv
+#   mpg123   — pemutar audio ringan (alternatif -p)                → sudo apt install mpg123
+#   chafa / timg — render video ke ANSI saat tanpa display         → sudo apt install chafa
+#   node/deno — dipakai yt-dlp untuk membuka semua format YouTube
+#   exiftool — modul -x                             → sudo apt install libimage-exiftool-perl
