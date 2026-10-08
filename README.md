@@ -1,504 +1,406 @@
-freease
+```
+  ███████╗██████╗ ███████╗ █████╗ ███████╗███████╗
+  ██╔════╝██╔══██╗██╔════╝██╔══██╗██╔════╝██╔════╝
+  █████╗  ██████╔╝█████╗  ███████║███████╗█████╗
+  ██╔══╝  ██╔══██╗██╔══╝  ██╔══██║╚════██║██╔══╝
+  ██║     ██║  ██║███████╗██║  ██║███████║███████╗
+  ╚═╝     ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝
+```
 
-Defensive Reconnaissance and Attack Surface Audit Suite
+# freease
 
-"freease" is a Python-based security reconnaissance toolkit for authorized defensive assessments, security research, and attack-surface auditing.
+Tool recon dan audit attack surface berbasis terminal, ditulis dengan Python.
+Versi 2.2.0, oleh Kodok-Kejepit.
 
-Version: 2.2.0
-Author: Kodok-Kejepit
-Language: Python 3.9+
+freease menggabungkan beberapa pekerjaan yang biasanya butuh banyak tool terpisah:
+recon domain, port scan, deteksi WAF, WHOIS, cek keamanan email, cek username,
+cek kebocoran email, reputasi IP, ekstraksi metadata, pemeriksa tautan
+phishing, downloader YouTube, dan pemutar audio/video. Semuanya dijalankan
+dari satu perintah, `freease.py`.
 
----
+> Pakai hanya pada domain, IP, akun, atau aset yang kamu miliki, atau yang
+> pemiliknya sudah memberi izin. Penyalahgunaan di luar itu tanggung jawab
+> pengguna.
 
-Overview
 
-Freease combines multiple reconnaissance, security-analysis, metadata, URL-analysis, and terminal media utilities into a single command-line application.
+## Daftar isi
 
-The project is designed around a simple principle:
+- [Instalasi](#instalasi)
+- [Pemakaian singkat](#pemakaian-singkat)
+- [Modul recon](#modul-recon)
+- [URL Safety Scanner](#url-safety-scanner)
+- [Media Player](#media-player)
+- [YouTube Downloader](#youtube-downloader)
+- [Semua opsi](#semua-opsi)
+- [Laporan](#laporan)
+- [Struktur file](#struktur-file)
+- [Batasan](#batasan)
+- [Lisensi](#lisensi)
 
-«Collect useful information from legitimate sources, keep the analysis transparent, and never access systems without authorization.»
 
-Freease primarily works with publicly available information, passive network checks, third-party intelligence services, and locally supplied files or URLs.
+## Instalasi
 
----
+Butuh Python 3.9 atau lebih baru.
 
-Disclaimer
-
-Freease is intended for:
-
-- academic research
-- defensive security assessment
-- authorized reconnaissance
-- attack-surface auditing
-- security testing of systems and assets you own or are explicitly authorized to assess
-
-Only use Freease against domains, accounts, IP addresses, URLs, files, or other assets for which you have appropriate authorization.
-
-The author is not responsible for misuse of this software.
-
----
-
-Features
-
-Module| Function
-NetworkRecon| DNS, subdomain discovery, web technology, SSL/TLS
-PortScan| Asynchronous TCP port scanning and banner grabbing
-WAFDetector| Web Application Firewall fingerprinting
-WhoisChecker| Domain registration, registrar, RDAP, domain age
-EmailSecurityChecker| SPF, DKIM, DMARC, MTA-STS, BIMI validation
-UsernameChecker| Username lookup across 20 platforms
-BreachChecker| Email breach checking through Have I Been Pwned
-IPReputationChecker| AbuseIPDB, AlienVault OTX, and ip-api
-ExifToolExtractor| EXIF, GPS, IPTC, XMP, and file metadata
-YouTubeDownloader| Video and audio download utilities
-URLScanner| Passive phishing and malicious-URL analysis
-MediaPlayer| Audio/video playback directly from the terminal
-ReportGenerator| JSON and HTML report generation
-
----
-
-Requirements
-
-Core
-
-- Python 3.9 or newer
-- Internet connection for network-based modules
-- Python dependencies listed in "requirements.txt"
-
-Install the Python dependencies:
-
+```bash
+git clone https://github.com/Kodok-Kejepit/freease.git
+cd freease
 pip install -r requirements.txt
-
-Run the application:
-
 python freease.py --help
+```
 
-Optional system tools
+Di Termux:
 
-Some modules can use external programs when available.
+```bash
+pkg install python git ffmpeg mpv exiftool
+git clone https://github.com/Kodok-Kejepit/freease.git
+cd freease
+pip install -r requirements.txt
+```
 
-Tool| Used by| Example installation
-"ffmpeg"| YouTube conversion, media processing, "ffprobe"| "sudo apt install ffmpeg"
-"mpv"| Terminal media player| "sudo apt install mpv" / "pkg install mpv"
-"mpg123"| Lightweight audio fallback| "sudo apt install mpg123"
-"chafa" / "timg"| ANSI video rendering| "sudo apt install chafa"
-"node" / "deno"| Additional YouTube format support| "sudo apt install nodejs"
-"exiftool"| Metadata extraction| "sudo apt install libimage-exiftool-perl"
+Beberapa modul memakai program sistem. Pasang hanya yang kamu perlukan:
 
-The URL Safety Scanner does not require additional system tools.
+| Program        | Dipakai oleh                                        | Debian/Ubuntu                               |
+|----------------|-----------------------------------------------------|---------------------------------------------|
+| ffmpeg         | YouTube (gabung video+audio, konversi), metadata player | `sudo apt install ffmpeg`              |
+| mpv            | Media player, termasuk video di dalam terminal      | `sudo apt install mpv`                      |
+| mpg123         | Media player, alternatif ringan untuk audio         | `sudo apt install mpg123`                   |
+| chafa / timg   | Media player, render video tanpa display grafis     | `sudo apt install chafa`                    |
+| node / deno    | YouTube, supaya semua format bisa dibaca yt-dlp     | `sudo apt install nodejs`                   |
+| exiftool       | Ekstraksi metadata (`-x`)                           | `sudo apt install libimage-exiftool-perl`   |
 
----
+URL Safety Scanner tidak butuh program tambahan.
 
-Quick Start
 
-Network reconnaissance
+## Pemakaian singkat
 
+```bash
+python freease.py -d example.com                      # recon domain lengkap
+python freease.py -u johndoe                          # cek username
+python freease.py -s "https://contoh.xyz/login"       # periksa tautan mencurigakan
+python freease.py -p ./Music --shuffle                # putar satu folder musik
+python freease.py -y "https://youtu.be/VIDEO_ID"      # download dari YouTube
+```
+
+Beberapa modul bisa digabung dalam satu perintah:
+
+```bash
+python freease.py -d example.com -u johndoe -e admin@example.com \
+  --hibp-key KEY_HIBP -i 1.2.3.4 -o ./laporan
+```
+
+
+## Modul recon
+
+### Domain (`-d`)
+
+Satu flag `-d` menjalankan lima pemeriksaan sekaligus secara paralel:
+
+- **NetworkRecon**: record DNS (A, AAAA, MX, TXT, NS, CNAME, SOA), subdomain dari
+  Certificate Transparency (crt.sh, cadangan Cert Spotter), deteksi server,
+  CMS, dan CDN, audit security header, serta info sertifikat SSL/TLS.
+- **PortScanner**: scan TCP async ke 22 port umum (FTP, SSH, SMTP, HTTP/S,
+  MySQL, RDP, PostgreSQL, Redis, Elasticsearch, MongoDB, dan lain-lain),
+  lengkap dengan banner grabbing. Port database dan remote access yang terbuka
+  ditandai sebagai sensitif. Bisa dilewati dengan `--skip-portscan`.
+- **WAFDetector**: mengenali 13 vendor WAF dari header, cookie, dan isi respons.
+- **WhoisChecker**: registrar, tanggal registrasi, dan umur domain lewat RDAP.
+- **EmailSecurityChecker**: SPF, DKIM (19 selector umum), DMARC, MTA-STS, dan BIMI.
+
+```bash
 python freease.py -d example.com
+python freease.py -d example.com --skip-portscan -o ./laporan
+```
 
-Specify an output directory:
+### Username (`-u`)
 
-python freease.py -d example.com -o ./reports
+Mengecek keberadaan username di 20 platform: GitHub, GitLab, Twitter/X,
+Instagram, LinkedIn, Reddit, TikTok, YouTube, Pinterest, Telegram, Medium,
+Dev.to, Keybase, Pastebin, HackerNews, Docker Hub, PyPI, npm, Gravatar, dan Flickr.
 
-Skip the port scanner:
-
-python freease.py -d example.com --skip-portscan
-
-Username lookup
-
+```bash
 python freease.py -u johndoe
+```
+
+Hasil `UNKNOWN` berarti platformnya wajib login atau memblokir bot, jadi
+keberadaan akun tidak bisa dipastikan secara otomatis. Hasil seperti ini tidak
+dihitung sebagai `FOUND`.
+
+### Kebocoran email (`-e`)
+
+Memeriksa email di Have I Been Pwned v3. Butuh API key dari
+https://haveibeenpwned.com/API/Key. Beberapa email bisa dipisah dengan koma, dan
+jeda antar-request diatur otomatis.
+
+```bash
+python freease.py -e admin@example.com,info@example.com --hibp-key KEY_HIBP
+```
+
+### Reputasi IP (`-i`)
+
+Menggabungkan data dari AbuseIPDB (skor abuse, flag TOR/proxy), AlienVault OTX
+(jumlah pulse, keluarga malware), dan ip-api.com (lokasi, ISP, ASN). OTX dan
+ip-api tidak butuh key. AbuseIPDB butuh key gratis dari
+https://www.abuseipdb.com/register.
+
+```bash
+python freease.py -i 1.2.3.4,8.8.8.8 --abuseipdb-key KEY_ABUSEIPDB
+```
 
-Freease checks the username across 20 supported platforms.
+### Metadata file (`-x`)
 
-A result reported as "UNKNOWN" means the platform could not be reliably verified, usually because authentication, anti-bot protection, or other restrictions prevent automated confirmation.
+Membaca metadata EXIF, IPTC, dan XMP dari file lokal maupun URL. Kalau ada
+koordinat GPS, link Google Maps-nya ikut ditampilkan.
 
-Email breach check
+```bash
+python freease.py -x foto.jpg
+python freease.py -x https://example.com/gambar.jpg
+```
 
-python freease.py \
-  -e admin@example.com,info@example.com \
-  --hibp-key YOUR_HIBP_KEY \
-  -o ./reports
 
-Have I Been Pwned API:
+## URL Safety Scanner
 
-https://haveibeenpwned.com/API/Key
+Dipakai untuk memeriksa tautan sebelum dibuka, misalnya link dari chat, email,
+atau SMS yang terasa janggal. Scanner ini tidak membuka halamannya. Tidak ada
+JavaScript yang dijalankan dan tidak ada file yang diunduh. Yang dilakukan
+hanya membaca struktur URL, melihat ke mana link itu diarahkan, dan
+mengecek sertifikat serta umur domainnya.
 
-IP reputation
+```bash
+python freease.py -s "https://paypa1-login.verify-account.tk/signin"
+python freease.py -s "http://bit.ly/xxxx" --urlhaus
+python freease.py -s "https://contoh.xyz" --offline
+python freease.py --scan-list daftar_url.txt -o ./laporan
+```
 
-python freease.py \
-  -i 1.2.3.4,8.8.8.8 \
-  --abuseipdb-key YOUR_ABUSEIPDB_KEY
+Contoh hasil:
 
-Metadata extraction
+```
+╭─────────────────────────── URL SAFETY SCANNER ───────────────────────────╮
+│ URL   : http://paypa1-login.verify-account.tk/signin/update               │
+│ Host  : paypa1-login.verify-account.tk                                    │
+│                                                                           │
+│ VERDICT: MENCURIGAKAN  (skor risiko 58/100)                               │
+╰─────────────── analisis pasif — target tidak dibuka/dieksekusi ───────────╯
+  HIGH     impersonasi   Menyebut brand 'paypal' tapi domain terdaftar
+                         'verify-account.tk' ≠ resmi 'paypal.com'.       26
+  MEDIUM   tld           TLD '.tk' punya reputasi penyalahgunaan tinggi.  14
+  MEDIUM   kata-kunci    Kata kunci bernuansa phishing: account, login,
+                         signin, update, verify                           12
+  LOW      transport     Tanpa HTTPS — lalu lintas tidak terenkripsi.      6
+```
 
-Local file:
+Pemeriksaannya dibagi tiga tahap.
 
-python freease.py -x /path/to/photo.jpg
+**Struktur URL** (selalu jalan, tanpa internet)
 
-Remote file:
+- host berupa IP, bukan nama domain
+- trik `user@host` yang menyembunyikan domain asli
+- Punycode (`xn--`) dan karakter yang mirip huruf lain, misalnya `paypa1` atau `g00gle`
+- nama domain yang mirip brand terkenal (typosquatting)
+- TLD yang sering disalahgunakan, seperti `.tk`, `.xyz`, `.top`, dan `.zip`
+- layanan pemendek URL (bit.ly, s.id, tinyurl, dan lain-lain)
+- subdomain yang terlalu dalam, host terlalu panjang, terlalu banyak tanda hubung atau angka
+- kata-kata yang umum di halaman phishing (login, verify, wallet, suspend, dan sejenisnya)
+- nama domain yang terlihat acak
+- skema `data:` dan `javascript:`
+- link yang langsung mengarah ke file `.apk`, `.exe`, `.scr`, `.zip`, dan sejenisnya
 
-python freease.py -x https://example.com/image.jpg
+**Jaringan** (bisa dimatikan dengan `--offline`)
 
-Full reconnaissance
+- apakah domainnya benar-benar ada di DNS
+- rantai redirect, ditelusuri lewat request `HEAD` satu per satu
+- perpindahan ke domain lain di tengah rantai redirect
+- sertifikat TLS: penerbit, masa berlaku, self-signed, cocok tidaknya dengan hostname, dan sertifikat yang baru terbit
+- umur domain lewat RDAP. Domain yang umurnya di bawah 30 hari diberi bobot tinggi.
 
-python freease.py \
-  -d example.com \
-  -u johndoe \
-  -e admin@example.com \
-  --hibp-key YOUR_HIBP_KEY \
-  -i 1.2.3.4 \
-  -o ./reports
+**Database ancaman** (opsional)
 
-Terminal-only output
+- abuse.ch URLhaus lewat `--urlhaus` (gratis, tanpa key)
+- Google Safe Browsing lewat `--safebrowsing-key KEY`
 
-python freease.py -d example.com --no-export
+Setiap temuan menambah skor. Totalnya dibatasi 0 sampai 100, lalu dikelompokkan:
 
----
+| Skor    | Verdict       | Exit code |
+|---------|---------------|-----------|
+| 0–24    | AMAN          | 0         |
+| 25–59   | MENCURIGAKAN  | 1         |
+| 60–100  | BERBAHAYA     | 2         |
 
-URL Safety Scanner
+Karena exit code-nya mengikuti tingkat risiko, scanner ini bisa dipakai di
+dalam script:
 
-The URL Safety Scanner performs passive analysis of potentially suspicious links.
+```bash
+python freease_scan.py --no-export "$URL" || echo "jangan dibuka"
+```
 
-Basic scan:
+Untuk `--scan-list`, isi file-nya satu URL per baris. Baris yang diawali `#`
+dianggap komentar. Kalau ada banyak URL, exit code mengikuti skor tertinggi.
 
-python freease.py -s "https://example.com/login"
+Skor ini berasal dari heuristik, bukan vonis. Domain baru yang sah bisa
+terkena skor sedang, dan halaman phishing di domain lama yang diretas bisa
+lolos dengan skor rendah. Untuk link yang benar-benar meragukan, gabungkan
+dengan `--urlhaus` atau Safe Browsing.
 
-Use URLhaus threat intelligence:
 
-python freease.py -s "https://example.com" --urlhaus
+## Media Player
 
-Perform lexical analysis without network requests:
+Memutar audio dan video langsung dari terminal. Formatnya mengikuti apa yang
+bisa dibuka ffmpeg/mpv, jadi praktis semua format umum didukung: mp3, m4a,
+flac, opus, ogg, wav, aac, mp4, mkv, webm, avi, mov, ts, dan lain-lain.
 
-python freease.py -s "https://example.com" --offline
-
-Batch scanning:
-
-python freease.py --scan-list urls.txt -o ./reports
-
-Optional Google Safe Browsing integration:
-
-python freease.py \
-  -s "https://example.com" \
-  --safebrowsing-key YOUR_KEY
-
-Analysis layers
-
-Lexical analysis
-
-- raw IP hosts
-- "user@host" tricks
-- Punycode and IDN homographs
-- lookalike characters
-- typosquatting
-- suspicious TLDs
-- URL shorteners
-- excessive subdomain depth
-- phishing-related keywords
-- high-entropy domain labels
-- "data:" and "javascript:" URLs
-- suspicious file extensions
-
-Network analysis
-
-- DNS resolution
-- redirect tracing through "HEAD"
-- cross-domain redirect detection
-- TLS certificate information
-- hostname and certificate matching
-- certificate age indicators
-- domain age through RDAP
-
-Threat intelligence
-
-- abuse.ch URLhaus
-- Google Safe Browsing
-
-The scanner is designed as a passive safety-analysis tool. It does not render or execute the target page.
-
-Risk scores range from "0" to "100".
-
-Possible verdicts:
-
-SAFE
-SUSPICIOUS
-DANGEROUS
-
-Exit codes:
-
-0  SAFE
-1  SUSPICIOUS
-2  DANGEROUS
-
-This makes the scanner suitable for shell scripting and automation.
-
----
-
-YouTube and YouTube Music
-
-Interactive mode:
-
-python freease.py -y "https://youtu.be/VIDEO_ID"
-
-Download a specific video quality:
-
-python freease.py \
-  -y "https://youtu.be/VIDEO_ID" \
-  --yt-mode video \
-  --yt-quality 4k
-
-Audio:
-
-python freease.py \
-  -y "https://music.youtube.com/watch?v=ID" \
-  --yt-mode musik
-
-Custom audio format and bitrate:
-
-python freease.py \
-  -y "https://music.youtube.com/watch?v=ID" \
-  --yt-mode musik \
-  --yt-audio-format m4a \
-  --yt-bitrate 320
-
-Playlist or album:
-
-python freease.py \
-  -y "https://youtube.com/playlist?list=ID" \
-  --yt-mode musik \
-  --yt-playlist
-
-Supported quality options
-
-4k      2160p
-2k      1440p
-hd      1080p
-720     720p
-480     480p
-360     360p
-240     240p
-144     144p
-best    Best available
-
-Audio formats
-
-mp3
-m4a
-opus
-flac
-wav
-
-The downloader can automatically fall back to a lower available resolution when the requested quality is unavailable.
-
-Music downloads can also include title, artist, and cover metadata.
-
-Use download functionality only for content you own or are authorized to download.
-
----
-
-Media Player
-
-Freease includes a terminal media player with automatic backend detection.
-
-Play a single audio file:
-
-python freease.py -p song.mp3
-
-Play an entire directory:
-
-python freease.py -p ./Music
-
-Shuffle and loop:
-
+```bash
+python freease.py -p lagu.mp3
 python freease.py -p ./Music --shuffle --loop
-
-Play video:
-
-python freease.py -p video.mkv
-
-Audio-only playback:
-
-python freease.py -p video.mkv --audio-only
-
-Stream directly from a URL:
-
-python freease.py \
-  -p "https://youtu.be/VIDEO_ID" \
-  --pl-backend mpv
-
-Show the playback queue without starting playback:
-
+python freease.py -p "./Music/*.flac"
+python freease.py -p film.mkv --subtitle film.srt --start 1:30
+python freease.py -p film.mkv --audio-only
+python freease.py -p "https://youtu.be/VIDEO_ID" --pl-backend mpv
 python freease.py -p ./Music --list
+```
 
-Playback options
+Sumbernya bisa berupa file, folder (otomatis jadi playlist, termasuk
+subfolder), pola glob, atau URL.
 
-Option| Function
-"--audio-only"| Play audio even when the source contains video
-"--loop"| Repeat the current file or playlist
-"--shuffle"| Randomize playlist order
-"--volume 0-200"| Set initial volume
-"--start POS"| Start from a specific position
-"--speed X"| Set playback speed
-"--subtitle FILE"| Load an external subtitle
-"--pl-backend"| Force a specific playback engine
-"--no-recursive"| Do not scan subdirectories
-"--list"| Show the queue without playing
+Program pemutarnya dipilih otomatis dari yang terpasang:
 
-Supported playback backends include:
+| Kondisi                          | Urutan yang dicoba                     |
+|----------------------------------|----------------------------------------|
+| Video, ada display (X/Wayland)   | mpv, ffplay, mplayer, vlc              |
+| Video, tanpa display (Termux/SSH)| mpv `--vo=tct`, timg, ffmpeg + chafa   |
+| Audio                            | mpv, ffplay, mplayer, mpg123, cvlc     |
 
-mpv
-ffplay
-mplayer
-mpg123
-cvlc
-vlc
-timg
+Di Termux atau sesi SSH, mpv bisa menampilkan video langsung di terminal
+lengkap dengan suaranya. timg dan chafa hanya menampilkan gambar tanpa suara,
+jadi keduanya cuma dipakai kalau mpv tidak ada.
 
-On Linux or Termux environments without a graphical display, Freease can render video directly inside the terminal when a compatible backend is available.
+Kontrol selama pemutaran memakai tombol bawaan pemutarnya. Di mpv dan ffplay:
+`Space` untuk pause, panah kiri/kanan untuk maju-mundur, `9`/`0` untuk volume,
+`q` untuk lanjut ke lagu berikutnya, dan `Ctrl+C` untuk berhenti.
 
----
+| Opsi              | Fungsi                                                  |
+|-------------------|---------------------------------------------------------|
+| `--audio-only`    | Putar suaranya saja walaupun file-nya video             |
+| `--loop`          | Ulangi file atau seluruh playlist                       |
+| `--shuffle`       | Acak urutan playlist                                    |
+| `--volume N`      | Volume awal, 0–200 (default 100)                        |
+| `--start POS`     | Mulai dari detik tertentu, contoh `90` atau `1:30`      |
+| `--speed X`       | Kecepatan putar, contoh `1.5` (mpv dan mplayer)         |
+| `--subtitle FILE` | Subtitle dari file terpisah (mpv)                       |
+| `--pl-backend`    | Paksa pakai pemutar tertentu                            |
+| `--no-recursive`  | Jangan ikut membaca subfolder                           |
+| `--list`          | Tampilkan antrian saja, tanpa memutar                   |
 
-Command Reference
 
-Option| Description
-"-d DOMAIN"| Network reconnaissance target
-"-u USERNAME"| Username lookup
-"-e EMAIL[,EMAIL2]"| Email breach checking
-"-i IP[,IP/DOMAIN]"| IP/domain reputation
-"-x FILE/URL"| Metadata extraction
-"-y URL"| YouTube / YouTube Music downloader
-"-s URL"| Passive URL safety scanner
-"--scan-list FILE"| Batch URL scanning
-"-p SRC..."| Terminal media player
-"--hibp-key KEY"| Have I Been Pwned API key
-"--abuseipdb-key KEY"| AbuseIPDB API key
-"--skip-portscan"| Disable port scanning
-"-o DIR"| Report output directory
-"--no-export"| Disable JSON/HTML report export
+## YouTube Downloader
 
-Run the full command reference:
+Download video atau musik dari YouTube dan YouTube Music, mulai dari 144p
+sampai 4K. Kalau mode dan kualitasnya tidak diisi, pilihannya akan ditanyakan.
 
-python freease.py --help
+```bash
+python freease.py -y "https://youtu.be/VIDEO_ID"
+python freease.py -y "https://youtu.be/VIDEO_ID" --yt-mode video --yt-quality 4k
+python freease.py -y "https://music.youtube.com/watch?v=ID" --yt-mode musik
+python freease.py -y "https://music.youtube.com/watch?v=ID" --yt-mode musik \
+  --yt-audio-format m4a --yt-bitrate 320
+python freease.py -y "https://youtube.com/playlist?list=ID" --yt-mode musik --yt-playlist
+```
 
----
+| Opsi                | Nilai                                                        |
+|---------------------|--------------------------------------------------------------|
+| `--yt-mode`         | `video`, atau `musik`/`audio`                                |
+| `--yt-quality`      | `4k`, `2k`, `hd`/`1080`, `720`, `480`, `360`, `240`, `144`, `best` |
+| `--yt-audio-format` | `mp3` (default), `m4a`, `opus`, `flac`, `wav`                |
+| `--yt-bitrate`      | `128`, `192` (default), `256`, `320`                         |
+| `--yt-container`    | `mp4` (default) atau `mkv`                                   |
+| `--yt-playlist`     | Download seluruh playlist atau album                         |
+| `--yt-dir`          | Folder tujuan (default `./freease_downloads`)                |
 
-Output
+Kalau resolusi yang diminta tidak tersedia, download turun ke resolusi
+terdekat di bawahnya. Musik otomatis diberi tag judul, artis, dan cover.
 
-By default, reports are written to the configured output directory.
+Gunakan hanya untuk konten milikmu sendiri atau yang memang boleh diunduh.
 
-Example:
 
+## Semua opsi
+
+| Opsi                    | Keterangan                                          |
+|-------------------------|-----------------------------------------------------|
+| `-d DOMAIN`             | Recon domain (5 modul paralel)                      |
+| `-u USERNAME`           | Cek username di 20 platform                         |
+| `-e EMAIL[,EMAIL]`      | Cek kebocoran email (HIBP)                          |
+| `-i IP[,IP]`            | Reputasi IP atau domain                             |
+| `-x FILE/URL`           | Ekstraksi metadata                                  |
+| `-s URL`                | Periksa satu tautan                                 |
+| `--scan-list FILE`      | Periksa banyak tautan dari file                     |
+| `-p SRC [SRC ...]`      | Putar audio/video                                   |
+| `-y URL`                | Download dari YouTube                               |
+| `--hibp-key KEY`        | API key Have I Been Pwned                           |
+| `--abuseipdb-key KEY`   | API key AbuseIPDB                                   |
+| `--skip-portscan`       | Lewati port scan                                    |
+| `--offline`             | Scanner tanpa koneksi jaringan                      |
+| `--urlhaus`             | Scanner ikut cek ke URLhaus                         |
+| `--safebrowsing-key KEY`| Scanner ikut cek ke Google Safe Browsing            |
+| `--scan-timeout SEC`    | Timeout tiap request scanner (default 10)           |
+| `--max-redirects N`     | Batas redirect yang ditelusuri (default 10)         |
+| `-o DIR`                | Folder laporan (default `./freease_output`)         |
+| `--no-export`           | Tampilkan di terminal saja, tanpa file laporan      |
+| `-V`, `--version`       | Tampilkan versi                                     |
+
+Opsi lengkap media player dan YouTube ada di bagian masing-masing di atas,
+atau lihat lewat `python freease.py --help`.
+
+
+## Laporan
+
+Kecuali dijalankan dengan `--no-export`, hasil disimpan ke folder output
+(default `./freease_output`):
+
+```
 freease_output/
-├── freease_report_YYYYMMDD_HHMMSS.json
-└── freease_report_YYYYMMDD_HHMMSS.html
+├── freease_report_20260602_121521.json    hasil modul recon
+├── freease_report_20260602_121521.html
+├── freease_scan_20260602_130044.json      hasil URL scanner
+└── freease_scan_20260602_130044.html
+```
 
-JSON
+File JSON berisi data mentah yang bisa diolah lagi. File HTML bisa dibuka di
+browser dan berisi ringkasan skor, temuan per modul, serta badge status.
 
-Structured output for:
 
-- automation
-- scripting
-- data processing
-- archival
-- further analysis
+## Struktur file
 
-HTML
+```
+freease.py                   entry point, modul recon, laporan
+freease_scan.py              URL Safety Scanner
+freease_player.py            media player
+freease_youtube.py           YouTube downloader
+freease_exiftool_module.py   ekstraksi metadata
+requirements.txt
+```
 
-Interactive report containing:
+`freease_scan.py`, `freease_player.py`, dan `freease_youtube.py` juga bisa
+dijalankan sendiri tanpa lewat `freease.py`:
 
-- security score
-- categorized findings
-- expandable sections
-- readable summaries
-- visual indicators
+```bash
+python freease_scan.py "https://contoh.xyz"
+python freease_player.py ./Music --shuffle
+python freease_youtube.py "https://youtu.be/VIDEO_ID"
+```
 
----
 
-Architecture
+## Batasan
 
-freease.py
-├── NetworkRecon
-├── PortScanner
-├── WAFDetector
-├── WhoisChecker
-├── EmailSecurityChecker
-├── UsernameChecker
-├── BreachChecker
-├── IPReputationChecker
-├── ExifToolExtractor
-├── ReportGenerator
-└── FreeaseEngine
+- Hasil cek username untuk platform yang wajib login (Instagram, X, TikTok,
+  LinkedIn, Pinterest) tidak bisa dipastikan, jadi akan muncul sebagai `UNKNOWN`.
+- crt.sh, OTX, dan layanan publik lain kadang lambat atau menolak request.
+  Kalau satu sumber gagal, modul lain tetap jalan.
+- Scanner hanya bisa menilai apa yang terlihat dari luar. Halaman phishing yang
+  dipasang di domain lama yang sudah diretas bisa saja lolos.
+- freease tidak melakukan brute force, eksploitasi, atau akses ke sistem
+  tanpa izin.
 
-freease_youtube.py
-└── YouTubeDownloader
 
-freease_scan.py
-└── URLScanner
+## Lisensi
 
-freease_player.py
-└── MediaPlayer
-
-The main reconnaissance workflow uses asynchronous execution with "asyncio" and "aiohttp" to run independent checks concurrently.
-
-The architecture is intentionally modular so individual components can also be used independently where supported.
-
----
-
-Data Sources
-
-Freease can use publicly accessible or explicitly authorized services and data sources such as:
-
-Source| Purpose
-DNS resolvers| DNS records
-crt.sh| Certificate Transparency data
-Cert Spotter| Certificate Transparency fallback
-HTTP responses| Server and technology detection
-RDAP| Domain registration and age
-Have I Been Pwned| Email breach information
-AbuseIPDB| IP reputation
-AlienVault OTX| Threat intelligence
-ip-api| IP geolocation and network data
-URLhaus| Malicious URL intelligence
-Google Safe Browsing| Optional URL reputation
-
-Availability and accuracy depend on the external service being accessible and willing to respond to automated requests.
-
----
-
-Security and Legal Boundaries
-
-Freease does not intentionally provide or perform:
-
-- brute-force authentication
-- credential attacks
-- exploitation of vulnerabilities
-- unauthorized system access
-- access to private data
-- destructive actions
-
-The project is intended for reconnaissance, analysis, auditing, and defensive research within authorized scope.
-
----
-
-License
-
-See ""LICENSE"" (LICENSE) for the full license text.
-
----
-
-Author
-
-*Kodok-Kejepit*
-
-Freease is an independent security-tool project focused on practical defensive reconnaissance and terminal-first workflows.
-
----
-
-Version
-
-Current release:
-
-freease v2.2.0
-
-Project repository:
-
-https://github.com/Kodok-Kejepit/freease
-
+Lihat [LICENSE](LICENSE).
