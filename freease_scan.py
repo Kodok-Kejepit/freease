@@ -5,9 +5,9 @@ by: Kodok-Kejepit
 
 Scanner DEFENSIF untuk memeriksa sebuah tautan SEBELUM Anda membukanya.
 Tujuannya persis seperti memeriksa paket sebelum dibuka: semua pemeriksaan
-bersifat pasif / analitis. freease TIDAK pernah "membuka", merender, atau
-mengeksekusi isi halaman target — tidak ada JavaScript yang dijalankan dan
-tidak ada file yang diunduh. Yang dilakukan hanyalah:
+bersifat pasif / analitis. freease TIDAK pernah merender atau mengeksekusi
+isi halaman target — tidak ada JavaScript yang dijalankan dan tidak ada file
+yang diunduh. Yang dilakukan hanyalah:
 
   LEKSIKAL (tanpa jaringan)
     • Host berupa IP mentah, trik "user@host", port tak lazim
@@ -24,10 +24,18 @@ tidak ada file yang diunduh. Yang dilakukan hanyalah:
     • Jejak REDIRECT lewat HEAD (ke mana link ini sebenarnya mengarah)
     • Sertifikat TLS (penerbit, masa berlaku, self-signed, cocok/tidak hostname)
     • Umur domain via RDAP (domain yang baru dibuat lebih berisiko)
+    • Domain TUJUAN akhir ikut dianalisis kalau link berpindah domain
+
+  ANALISIS KONTEN (--deep)
+    • Sumber HTML halaman tujuan dibaca sebagai TEKS (maks 512 KB) — tidak ada
+      JavaScript yang dijalankan dan tidak ada resource lain yang dimuat
+    • Form password, form yang mengirim data ke domain lain, meta refresh,
+      judul halaman yang menyebut brand, JavaScript yang diobfuskasi
 
   INTELIJEN ANCAMAN (opt-in)
-    • abuse.ch URLhaus         → --urlhaus          (gratis, tanpa key)
-    • Google Safe Browsing v4  → --safebrowsing-key KEY
+    • abuse.ch URLhaus         → --urlhaus  (Auth-Key gratis: --urlhaus-key /
+                                              env URLHAUS_AUTH_KEY)
+    • Google Safe Browsing v4  → --safebrowsing-key KEY (atau env SAFEBROWSING_API_KEY)
 
 Hasil diringkas menjadi skor risiko 0–100 dan verdict:
   AMAN (<25) · MENCURIGAKAN (25–59) · BERBAHAYA (≥60)
@@ -45,6 +53,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import ipaddress
 import os
 import re
 import socket
@@ -63,6 +72,8 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
+from freease_version import __version__
+
 BROWSER_UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/126.0 Safari/537.36"
@@ -73,6 +84,8 @@ SHORTENERS = {
     "bit.ly", "tinyurl.com", "goo.gl", "t.co", "ow.ly", "is.gd", "buff.ly",
     "cutt.ly", "rb.gy", "shorturl.at", "rebrand.ly", "bit.do", "t.ly",
     "s.id", "tiny.cc", "lnkd.in", "trib.al", "soo.gd", "clck.ru", "v.gd",
+    "shorturl.asia", "linktr.ee", "bitly.com", "qrco.de", "u.to", "x.gd",
+    "urlz.fr", "tiny.one", "rotf.lol", "surl.li", "is.gd", "1url.cz",
 }
 # TLD yang secara historis punya rasio penyalahgunaan tinggi (sumber publik).
 RISKY_TLDS = {
@@ -100,7 +113,41 @@ BRANDS = {
     "metamask": "metamask.io", "telegram": "telegram.org", "discord": "discord.com",
     "dana": "dana.id", "ovo": "ovo.id", "gojek": "gojek.com", "shopee": "shopee.co.id",
     "tokopedia": "tokopedia.com", "bca": "bca.co.id", "mandiri": "bankmandiri.co.id",
-    "bri": "bri.co.id", "bni": "bni.co.id",
+    "bri": "bri.co.id", "bni": "bni.co.id", "bsi": "bankbsi.co.id",
+    "jenius": "jenius.com", "gopay": "gopay.co.id", "linkaja": "linkaja.id",
+    "lazada": "lazada.co.id", "blibli": "blibli.com", "bukalapak": "bukalapak.com",
+    "traveloka": "traveloka.com", "youtube": "youtube.com", "outlook": "outlook.com",
+    "office365": "office.com", "icloud": "icloud.com", "yahoo": "yahoo.com",
+    "dropbox": "dropbox.com", "docusign": "docusign.com", "github": "github.com",
+    "roblox": "roblox.com", "mobilelegends": "mobilelegends.com",
+    "garena": "garena.com", "epicgames": "epicgames.com", "trustwallet": "trustwallet.com",
+    "indodax": "indodax.com", "bpjs": "bpjs-kesehatan.go.id",
+}
+# Domain resmi tambahan milik brand yang sama (bukan impersonasi).
+BRAND_EXTRA = {
+    "google": {"googleusercontent.com", "googleapis.com", "gstatic.com", "goo.gl", "g.co"},
+    "facebook": {"fb.com", "fbcdn.net", "fb.me", "meta.com"},
+    "instagram": {"cdninstagram.com"},
+    "whatsapp": {"whatsapp.net", "wa.me"},
+    "microsoft": {"live.com", "office.com", "microsoftonline.com", "azure.com", "windows.net"},
+    "outlook": {"live.com", "office.com", "microsoft.com"},
+    "office365": {"office.com", "microsoft.com", "microsoftonline.com"},
+    "apple": {"icloud.com", "apple.co"},
+    "amazon": {"amazonaws.com", "amzn.to", "a2z.com"},
+    "twitter": {"x.com", "twimg.com", "t.co"},
+    "github": {"github.io", "githubusercontent.com", "githubassets.com"},
+    "youtube": {"youtu.be", "ytimg.com", "google.com"},
+    "telegram": {"t.me", "telegram.me"},
+    "discord": {"discord.gg", "discordapp.com", "discordapp.net"},
+    "steam": {"steamcommunity.com", "steamstatic.com"},
+    "tiktok": {"tiktokcdn.com", "tiktokv.com"},
+    "linkedin": {"lnkd.in", "licdn.com"},
+    "dropbox": {"dropboxusercontent.com", "db.tt"},
+    "shopee": {"shopee.com", "shp.ee", "shopee.sg", "shopee.com.my"},
+    "gojek": {"gojekapi.com", "gopay.co.id"},
+    "bca": {"klikbca.com"},
+    "mandiri": {"livin.id"},
+    "bri": {"bri.id"},
 }
 RISKY_PATH_EXT = {
     ".exe", ".scr", ".apk", ".bat", ".cmd", ".msi", ".jar", ".vbs", ".ps1",
@@ -171,6 +218,69 @@ def _registered_domain(host: str) -> str:
     return ".".join(parts[-2:])
 
 
+def _is_official(regdom: str, brand: str) -> bool:
+    """regdom milik brand: domain resmi, domain tambahan, atau varian ccTLD (google.co.id)."""
+    official = _registered_domain(BRANDS[brand])
+    if regdom == official or regdom in BRAND_EXTRA.get(brand, ()):
+        return True
+    parts = regdom.split(".")
+    if parts[0] != brand or parts[-1] in RISKY_TLDS or \
+            BRANDS[brand].split(".")[-1] not in ("com", "net", "org", "io"):
+        return False
+    # brand.co.<cc> / brand.com.<cc> / brand.<cc> (negara besar) — varian resmi brand global
+    if len(parts) == 3:
+        return parts[1] in ("co", "com") and len(parts[2]) == 2
+    return len(parts) == 2 and parts[1] in _MAJOR_CCTLDS
+
+
+# Imbuhan yang lazim ditempel ke nama brand pendek oleh phisher: klikbca, mybri, danaid …
+_BRAND_AFFIXES = {
+    "klik", "my", "m", "e", "i", "go", "ib", "login", "secure", "online", "web", "app",
+    "mobile", "id", "bank", "portal", "akun", "verifikasi", "verify", "promo", "bonus",
+}
+
+_MAJOR_CCTLDS = {
+    "id", "sg", "my", "ph", "th", "vn", "jp", "kr", "in", "au", "nz", "uk", "de", "fr",
+    "it", "es", "nl", "be", "ch", "at", "se", "no", "dk", "fi", "pl", "pt", "br", "mx",
+    "ca", "ar", "cl", "tr", "ae", "sa", "za", "hk", "tw", "ie",
+}
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return True
+    except ValueError:
+        return False
+
+
+def _is_obfuscated_ipv4(host: str) -> bool:
+    """'3232235777', '0xC0A80001', '0300.0250.0.1' — semua di-resolve browser sebagai IPv4."""
+    if not re.fullmatch(r"(0x[0-9a-f]+|\d+)(\.(0x[0-9a-f]+|\d+)){0,3}", host, re.IGNORECASE):
+        return False
+    if re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", host) and not re.search(r"(^|\.)0\d", host):
+        return False   # IPv4 biasa sudah ditangani _is_ip_literal
+    try:
+        socket.inet_aton(host)
+        return True
+    except OSError:
+        return False
+
+
+def _scripts_in(host: str) -> set:
+    """Aksara (Latin, Cyrillic, Greek, …) yang dipakai huruf di host."""
+    import unicodedata
+    scripts = set()
+    for ch in host:
+        if not ch.isalpha():
+            continue
+        try:
+            scripts.add(unicodedata.name(ch).split()[0])
+        except ValueError:
+            continue
+    return scripts
+
+
 class URLScanner:
     """Analisis satu URL. `scan()` mengembalikan dict hasil terstruktur."""
 
@@ -185,6 +295,7 @@ class URLScanner:
         max_redirects: int = 10,
         use_urlhaus: bool = False,
         safebrowsing_key: Optional[str] = None,
+        urlhaus_key: Optional[str] = None,
     ):
         self.raw = url.strip()
         self.console = console or Console()
@@ -194,6 +305,7 @@ class URLScanner:
         self.max_redirects = max_redirects
         self.use_urlhaus = use_urlhaus
         self.sb_key = safebrowsing_key
+        self.urlhaus_key = urlhaus_key
         self.findings: list[Finding] = []
 
     # ── util ───────────────────────────────────────────────────
@@ -228,17 +340,28 @@ class URLScanner:
                       f"Ada bagian '{escape(userinfo)}@' sebelum host — trik "
                       "menyamarkan domain tujuan yang sebenarnya.")
 
-        # Host berupa IP mentah
-        is_ip = False
-        try:
-            socket.inet_aton(host)
-            is_ip = bool(re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host))
-        except OSError:
-            is_ip = False
+        # Host berupa IP mentah (IPv4, IPv6, atau IPv4 terselubung desimal/hex/oktal)
+        is_ip = _is_ip_literal(host)
         if is_ip:
             self._add("high", 22, "host",
                       f"Host berupa alamat IP mentah ({host}), bukan nama domain — "
                       "lazim pada halaman phishing/sementara.")
+        elif host and _is_obfuscated_ipv4(host):
+            is_ip = True
+            self._add("critical", 35, "host",
+                      f"Host '{host}' adalah alamat IP yang disamarkan (desimal/hex/oktal) — "
+                      "trik khas untuk mengelabui pengguna dan filter.")
+
+        # Karakter non-ASCII di host (IDN mentah, belum Punycode) → homograph
+        if host and any(ord(c) > 127 for c in host):
+            scripts = _scripts_in(host)
+            if len(scripts) > 1:
+                self._add("critical", 35, "homograph",
+                          "Host mencampur huruf dari beberapa aksara "
+                          f"({', '.join(sorted(scripts))}) — hampir pasti tiruan domain asli.")
+            else:
+                self._add("medium", 12, "homograph",
+                          "Host memakai huruf non-Latin/IDN — periksa apakah meniru domain asli.")
 
         if parsed.port and parsed.port not in (80, 443):
             self._add("medium", 12, "host",
@@ -290,13 +413,24 @@ class URLScanner:
             # Cek host apa adanya DAN bentuk lookalike-nya ('paypa1' → 'paypal').
             host_deleet = _deleet(host)
             sld_deleet = _deleet(sld)
+            tokens = set(re.split(r"[.\-_]", host)) | set(re.split(r"[.\-_]", host.translate(LOOKALIKE_MAP)))
+            if any(_is_official(regdom, b) for b in BRANDS):
+                tokens = set()   # domain resmi salah satu brand: jangan dicurigai
             for brand, official in BRANDS.items():
                 off_reg = _registered_domain(official)
-                if regdom == off_reg:
+                if _is_official(regdom, brand):
                     break  # memang domain resmi
-                in_sub = (brand in host or brand in host_deleet) and regdom != off_reg
+                # Brand pendek (bca, bri, ovo, dana) hanya dihitung kalau berdiri sebagai
+                # label/kata sendiri, supaya 'fabric.com' tidak dianggap meniru 'bri'.
+                if len(brand) <= 4:
+                    in_sub = brand in tokens or any(
+                        brand in t and t.replace(brand, "", 1) in _BRAND_AFFIXES for t in tokens)
+                else:
+                    in_sub = bool(tokens) and (brand in host or brand in host_deleet)
                 dist = min(_levenshtein(sld, brand), _levenshtein(sld_deleet, brand))
-                near = 0 < dist <= max(1, len(brand) // 5) and abs(len(sld) - len(brand)) <= 2
+                near = (len(brand) >= 5 and 0 < dist <= max(1, len(brand) // 5)
+                        and abs(len(sld) - len(brand)) <= 2) or \
+                       (len(brand) < 5 and sld != brand and sld_deleet == brand)
                 if in_sub:
                     self._add("high", 26, "impersonasi",
                               f"Menyebut brand '{brand}' tapi domain terdaftar "
@@ -317,7 +451,7 @@ class URLScanner:
                       "Kata kunci bernuansa phishing: " + ", ".join(hits[:6]) +
                       ("…" if len(hits) > 6 else ""))
 
-        if "https" in host.replace("https", "", 0) and host.count("https") > 0:
+        if "https" in host or "http-" in host:
             self._add("medium", 12, "deception",
                       "Kata 'https' muncul di dalam nama host — trik agar terlihat aman.")
 
@@ -369,25 +503,37 @@ class URLScanner:
                 return None  # jangan auto-follow; kita telusuri manual
 
         opener = urllib.request.build_opener(_NoRedirect)
-        for _ in range(self.max_redirects + 1):
-            method = "HEAD"
+
+        def _probe(target: str, method: str) -> tuple:
+            req = urllib.request.Request(
+                target, method=method,
+                headers={"User-Agent": BROWSER_UA, "Accept": "*/*"})
             try:
-                req = urllib.request.Request(
-                    current, method=method,
-                    headers={"User-Agent": BROWSER_UA, "Accept": "*/*"})
                 resp = opener.open(req, timeout=self.timeout)
-                status = resp.getcode()
-                server = resp.headers.get("Server")
-                location = resp.headers.get("Location")
-                resp.close()
             except urllib.error.HTTPError as e:
-                status = e.code
-                server = e.headers.get("Server") if e.headers else None
-                location = e.headers.get("Location") if e.headers else None
+                hdrs = e.headers or {}
+                e.close()
+                return e.code, hdrs.get("Server"), hdrs.get("Location")
+            # GET: hanya status & header yang dibaca, isi halaman tidak diunduh
+            with resp:
+                return resp.getcode(), resp.headers.get("Server"), resp.headers.get("Location")
+
+        for _ in range(self.max_redirects + 1):
+            try:
+                status, server, location = _probe(current, "HEAD")
+                # Banyak server/WAF menolak HEAD (403/405/501) atau balas beda — ulangi GET
+                if status in (403, 405, 501) or (status >= 400 and not location):
+                    try:
+                        status, server, location = _probe(current, "GET")
+                    except Exception:
+                        pass
             except Exception as e:
-                chain.append({"url": current, "status": "error", "note": str(e)[:120]})
-                res["final_url"] = current
-                break
+                try:
+                    status, server, location = _probe(current, "GET")
+                except Exception:
+                    chain.append({"url": current, "status": "error", "note": str(e)[:120]})
+                    res["final_url"] = current
+                    break
 
             entry = {"url": current, "status": status, "server": server}
             chain.append(entry)
@@ -510,40 +656,57 @@ class URLScanner:
         return info
 
     # ── 6) intel ancaman (opt-in) ──────────────────────────────
-    def _urlhaus(self, url: str) -> dict:
-        info = {"listed": None}
-        try:
-            data = urllib.parse.urlencode({"url": url}).encode()
-            req = urllib.request.Request(
-                "https://urlhaus-api.abuse.ch/v1/url/",
-                data=data, headers={"User-Agent": BROWSER_UA})
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                j = json.loads(resp.read().decode("utf-8", "replace"))
-        except Exception:
+    def _urlhaus(self, urls: list) -> dict:
+        info: dict = {"listed": None, "error": None}
+        if not self.urlhaus_key:
+            # Sejak 2025 seluruh API abuse.ch wajib memakai Auth-Key (gratis)
+            info["error"] = ("URLhaus butuh Auth-Key gratis dari https://auth.abuse.ch/ — "
+                             "pakai --urlhaus-key atau env URLHAUS_AUTH_KEY")
             return info
-        status = j.get("query_status")
-        if status == "ok":
-            info["listed"] = True
-            threat = j.get("threat") or "malware_download"
-            self._add("critical", 50, "urlhaus",
-                      f"Terdaftar di abuse.ch URLhaus sebagai ancaman ({threat}).")
-        elif status == "no_results":
-            info["listed"] = False
+        for url in urls:
+            try:
+                data = urllib.parse.urlencode({"url": url}).encode()
+                req = urllib.request.Request(
+                    "https://urlhaus-api.abuse.ch/v1/url/",
+                    data=data, headers={"User-Agent": BROWSER_UA,
+                                        "Auth-Key": self.urlhaus_key})
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    j = json.loads(resp.read().decode("utf-8", "replace"))
+            except urllib.error.HTTPError as e:
+                info["error"] = ("URLhaus: Auth-Key ditolak" if e.code in (401, 403)
+                                 else f"URLhaus: HTTP {e.code}")
+                return info
+            except Exception as e:
+                info["error"] = f"URLhaus: {str(e)[:100]}"
+                return info
+            status = j.get("query_status")
+            if status == "ok":
+                info["listed"] = True
+                info["url_status"] = j.get("url_status")
+                threat = j.get("threat") or "malware_download"
+                where = "" if url == urls[0] else " (URL tujuan redirect)"
+                self._add("critical", 50, "urlhaus",
+                          f"Terdaftar di abuse.ch URLhaus sebagai ancaman ({threat}){where}.")
+                return info
+            if status == "no_results":
+                info["listed"] = False
+            else:
+                info["error"] = f"URLhaus: {status}"
         return info
 
-    def _safebrowsing(self, url: str) -> dict:
-        info = {"listed": None}
+    def _safebrowsing(self, urls: list) -> dict:
+        info: dict = {"listed": None, "error": None}
         if not self.sb_key:
             return info
         try:
             body = json.dumps({
-                "client": {"clientId": "freease", "clientVersion": "2.2.0"},
+                "client": {"clientId": "freease", "clientVersion": __version__},
                 "threatInfo": {
                     "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING",
                                     "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
                     "platformTypes": ["ANY_PLATFORM"],
                     "threatEntryTypes": ["URL"],
-                    "threatEntries": [{"url": url}],
+                    "threatEntries": [{"url": u} for u in urls],
                 }}).encode()
             req = urllib.request.Request(
                 "https://safebrowsing.googleapis.com/v4/threatMatches:find?key="
@@ -552,7 +715,12 @@ class URLScanner:
                                     "User-Agent": BROWSER_UA})
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 j = json.loads(resp.read().decode("utf-8", "replace"))
-        except Exception:
+        except urllib.error.HTTPError as e:
+            info["error"] = ("Safe Browsing: API key ditolak" if e.code in (400, 401, 403)
+                             else f"Safe Browsing: HTTP {e.code}")
+            return info
+        except Exception as e:
+            info["error"] = f"Safe Browsing: {str(e)[:100]}"
             return info
         if j.get("matches"):
             info["listed"] = True
@@ -561,6 +729,139 @@ class URLScanner:
                       f"Google Safe Browsing menandai URL ini ({types}).")
         else:
             info["listed"] = False
+        return info
+
+    # ── 7) domain tujuan akhir ─────────────────────────────────
+    def _analyze_destination(self, net: dict, start_host: str) -> None:
+        """
+        Link pendek / redirect sering berakhir di domain lain. Domain TUJUAN itulah
+        yang dibuka pengguna, jadi ikut dinilai: leksikal + umur domainnya.
+        """
+        final = (net.get("redirects") or {}).get("final_url")
+        if not final:
+            return
+        fp = urllib.parse.urlparse(final)
+        fhost = (fp.hostname or "").lower()
+        if not fhost or _registered_domain(fhost) == _registered_domain(start_host):
+            return
+        sub = URLScanner(final, console=self.console, offline=True)
+        sub._lexical(fp)
+        seen = {f.detail for f in self.findings}
+        for f in sub.findings:
+            # Skema http di tujuan dinilai tersendiri; temuan sama tidak dihitung dua kali
+            if f.detail not in seen and f.category not in ("struktur",):
+                self.findings.append(Finding(f.severity, f.score, f"tujuan:{f.category}",
+                                             f"[{fhost}] {f.detail}"))
+        if not (_is_ip_literal(fhost) or _is_obfuscated_ipv4(fhost)):
+            before = len(self.findings)
+            net["destination_age"] = self._domain_age(fhost)
+            for f in self.findings[before:]:
+                f.category = "tujuan:" + f.category
+                f.detail = f"[{fhost}] {f.detail}"
+
+    # ── 8) analisis konten (--deep) ────────────────────────────
+    _MAX_CONTENT = 512 * 1024
+
+    def _content(self, url: str) -> dict:
+        """
+        Baca sumber HTML halaman tujuan sebagai teks dan cari pola halaman phishing.
+        Tidak ada JavaScript yang dijalankan, tidak ada gambar/skrip lain yang dimuat.
+        """
+        info: dict = {"fetched": False, "title": None, "forms": 0, "password_fields": 0,
+                      "external_form_actions": [], "meta_refresh": None, "error": None}
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml"})
+            ctx = ssl._create_unverified_context()   # sertifikat sudah dinilai di _tls
+            with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as resp:
+                ctype = resp.headers.get("Content-Type", "")
+                if "html" not in ctype.lower() and ctype:
+                    info["error"] = f"Bukan halaman HTML ({ctype.split(';')[0]})"
+                    if any(t in ctype.lower() for t in ("octet-stream", "x-msdownload",
+                                                         "android.package", "x-msi")):
+                        self._add("high", 20, "konten",
+                                  f"Link langsung menyajikan file unduhan ({ctype.split(';')[0]}).")
+                    return info
+                charset = resp.headers.get_content_charset() or "utf-8"
+                page = resp.read(self._MAX_CONTENT).decode(charset, "replace")
+                final_url = resp.geturl()
+        except urllib.error.HTTPError as e:
+            info["error"] = f"HTTP {e.code}"
+            return info
+        except Exception as e:
+            info["error"] = str(e)[:120]
+            return info
+
+        info["fetched"] = True
+        low = page.lower()
+        page_host = (urllib.parse.urlparse(final_url).hostname or "").lower()
+        page_reg = _registered_domain(page_host)
+
+        m = re.search(r"<title[^>]*>(.*?)</title>", page, re.IGNORECASE | re.DOTALL)
+        title = " ".join(m.group(1).split())[:150] if m else ""
+        info["title"] = title
+
+        forms = re.findall(r"<form\b[^>]*>", page, re.IGNORECASE)
+        info["forms"] = len(forms)
+        pw = len(re.findall(r"<input\b[^>]*type\s*=\s*[\"']?password", page, re.IGNORECASE))
+        info["password_fields"] = pw
+        for f in forms:
+            am = re.search(r"action\s*=\s*[\"']([^\"']+)", f, re.IGNORECASE)
+            if not am:
+                continue
+            action = urllib.parse.urljoin(final_url, am.group(1).strip())
+            ahost = (urllib.parse.urlparse(action).hostname or "").lower()
+            if action.lower().startswith("mailto:"):
+                info["external_form_actions"].append(action[:120])
+            elif ahost and _registered_domain(ahost) != page_reg:
+                info["external_form_actions"].append(action[:120])
+
+        if pw:
+            if final_url.lower().startswith("http://"):
+                self._add("critical", 35, "konten",
+                          "Halaman meminta password lewat HTTP tanpa enkripsi.")
+            else:
+                self._add("medium", 10, "konten",
+                          f"Halaman berisi form password ({pw} field) — pastikan domainnya asli.")
+        if info["external_form_actions"]:
+            self._add("high", 25 if pw else 15, "konten",
+                      "Form mengirim data ke domain lain: "
+                      + ", ".join(info["external_form_actions"][:2]))
+
+        mr = re.search(r"<meta[^>]+http-equiv\s*=\s*[\"']?refresh[^>]+content\s*=\s*"
+                       r"[\"']?\s*\d*\s*;?\s*url\s*=\s*([^\"'>]+)", page, re.IGNORECASE)
+        if mr:
+            info["meta_refresh"] = mr.group(1).strip()[:200]
+            target_host = (urllib.parse.urlparse(
+                urllib.parse.urljoin(final_url, info["meta_refresh"])).hostname or "").lower()
+            if target_host and _registered_domain(target_host) != page_reg:
+                self._add("medium", 12, "konten",
+                          f"Meta refresh mengalihkan diam-diam ke {target_host}.")
+
+        # Judul/isi menyebut brand tapi domain bukan milik brand itu
+        tlow = title.lower()
+        for brand in BRANDS:
+            if len(brand) >= 4 and re.search(rf"\b{re.escape(brand)}\b", tlow) \
+                    and not _is_official(page_reg, brand):
+                sev, sc = ("high", 22) if pw else ("low", 6)
+                self._add(sev, sc, "konten",
+                          f"Judul halaman menyebut '{brand}' tapi domainnya {page_reg}"
+                          + (" dan meminta password" if pw else "") + ".")
+                break
+
+        obf = [p for p in ("eval(atob(", "eval(unescape(", "document.write(unescape(",
+                           "eval(function(p,a,c,k,e", "string.fromcharcode(", "\\x65\\x76\\x61\\x6c")
+               if p in low]
+        if obf:
+            self._add("medium", 12, "konten",
+                      "JavaScript diobfuskasi (" + ", ".join(obf[:2]) + ") — sering dipakai "
+                      "untuk menyembunyikan kit phishing.")
+        if re.search(r"<iframe[^>]+(width|height)\s*=\s*[\"']?0[\"'\s>]", page, re.IGNORECASE) \
+                or re.search(r"<iframe[^>]+display\s*:\s*none", page, re.IGNORECASE):
+            self._add("medium", 10, "konten", "Ada iframe tersembunyi di halaman.")
+        if re.search(r"(seed phrase|recovery phrase|12[- ]word|private key|frasa pemulihan)", low):
+            self._add("high", 20, "konten",
+                      "Halaman meminta seed/recovery phrase atau private key — ciri penipuan kripto.")
         return info
 
     # ── orkestrasi ─────────────────────────────────────────────
@@ -573,17 +874,27 @@ class URLScanner:
         self._lexical(parsed)
 
         net: dict = {}
+        host_is_ip = _is_ip_literal(host) or _is_obfuscated_ipv4(host)
         if not self.offline and parsed.scheme in ("http", "https") and host:
             net["dns"] = self._dns(host)
             if net["dns"].get("resolves"):
                 net["redirects"] = self._redirects(url)
-                if parsed.scheme == "https" or port == 443:
-                    net["tls"] = self._tls(host, 443)
-                net["domain_age"] = self._domain_age(host)
+                if parsed.scheme == "https":
+                    net["tls"] = self._tls(host, port)
+                if not host_is_ip:
+                    net["domain_age"] = self._domain_age(host)
+                self._analyze_destination(net, host)
+                if self.deep:
+                    target = net["redirects"].get("final_url") or url
+                    net["content"] = self._content(target)
+            urls_to_check = [url]
+            final = (net.get("redirects") or {}).get("final_url")
+            if final and final != url:
+                urls_to_check.append(final)
             if self.use_urlhaus:
-                net["urlhaus"] = self._urlhaus(url)
+                net["urlhaus"] = self._urlhaus(urls_to_check)
             if self.sb_key:
-                net["safebrowsing"] = self._safebrowsing(url)
+                net["safebrowsing"] = self._safebrowsing(urls_to_check)
 
         total = min(100, sum(f.score for f in self.findings))
         if total >= 60:
@@ -624,11 +935,29 @@ def render_result(res: dict, console: Console) -> None:
         header.append(f"[bold]Tujuan:[/bold] {escape(net['redirects']['final_url'])}")
     if net.get("dns"):
         addrs = net["dns"].get("addresses") or []
-        header.append(f"[bold]IP    :[/bold] " + (", ".join(addrs[:4]) if addrs else "—"))
+        header.append("[bold]IP    :[/bold] " + (", ".join(addrs[:4]) if addrs else "—"))
     if net.get("domain_age", {}).get("age_days") is not None:
         header.append(f"[bold]Umur  :[/bold] {net['domain_age']['age_days']} hari")
+    if net.get("destination_age", {}).get("age_days") is not None:
+        header.append(f"[bold]Umur tujuan:[/bold] {net['destination_age']['age_days']} hari")
     if net.get("tls", {}).get("issuer"):
         header.append(f"[bold]TLS   :[/bold] {escape(str(net['tls']['issuer']))}")
+    content = net.get("content") or {}
+    if content.get("title"):
+        header.append(f"[bold]Judul :[/bold] {escape(content['title'][:90])}")
+    if content.get("fetched"):
+        header.append(f"[bold]Konten:[/bold] {content.get('forms', 0)} form, "
+                      f"{content.get('password_fields', 0)} field password")
+    for key, label in (("urlhaus", "URLhaus"), ("safebrowsing", "Safe Browsing")):
+        intel = net.get(key)
+        if not intel:
+            continue
+        if intel.get("listed"):
+            header.append(f"[bold]{label}:[/bold] [bold red]TERDAFTAR SEBAGAI ANCAMAN[/bold red]")
+        elif intel.get("listed") is False:
+            header.append(f"[bold]{label}:[/bold] [green]tidak terdaftar[/green]")
+        elif intel.get("error"):
+            header.append(f"[bold]{label}:[/bold] [yellow]{escape(intel['error'])}[/yellow]")
 
     console.print(Panel(
         "\n".join(header) +
@@ -652,7 +981,7 @@ def render_result(res: dict, console: Console) -> None:
                       f["category"], escape(f["detail"]), str(f["score"]))
         console.print(t)
     else:
-        console.print("  [green]✓ Tidak ada sinyal mencurigakan yang terdeteksi.[/green]")
+        console.print("  [green]\\[+] Tidak ada sinyal mencurigakan yang terdeteksi.[/green]")
 
     if net.get("redirects", {}).get("chain"):
         chain = net["redirects"]["chain"]
@@ -672,7 +1001,7 @@ def _write_reports(results: list[dict], out_dir: str, console: Console) -> None:
     try:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        console.print(f"  [yellow]⚠ Gagal membuat folder output: {escape(str(e))}[/yellow]")
+        console.print(f"  [yellow]\\[!] Gagal membuat folder output: {escape(str(e))}[/yellow]")
         return
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     jpath = Path(out_dir) / f"freease_scan_{ts}.json"
@@ -680,7 +1009,7 @@ def _write_reports(results: list[dict], out_dir: str, console: Console) -> None:
         jpath.write_text(json.dumps(results, indent=2, ensure_ascii=False), "utf-8")
         console.print(f"  [dim]JSON:[/dim] {escape(str(jpath))}")
     except OSError as e:
-        console.print(f"  [yellow]⚠ Gagal menulis JSON: {escape(str(e))}[/yellow]")
+        console.print(f"  [yellow]\\[!] Gagal menulis JSON: {escape(str(e))}[/yellow]")
     # HTML ringkas
     rows = []
     for r in results:
@@ -690,8 +1019,11 @@ def _write_reports(results: list[dict], out_dir: str, console: Console) -> None:
             f"<li><b>[{f['severity'].upper()}]</b> {_esc(f['category'])}: "
             f"{_esc(f['detail'])} <i>(+{f['score']})</i></li>"
             for f in r["findings"]) or "<li>Tidak ada sinyal mencurigakan.</li>"
+        final = (r.get("network", {}).get("redirects") or {}).get("final_url")
+        dest = (f"<p>Tujuan akhir: <code>{_esc(final)}</code></p>"
+                if final and final != r.get("normalized") else "")
         rows.append(
-            f"<section><h2>{_esc(r['url'])}</h2>"
+            f"<section><h2>{_esc(r['url'])}</h2>{dest}"
             f"<p>Host: <code>{_esc(r['host'])}</code> · "
             f"<b style='color:{color}'>{r['verdict']}</b> "
             f"(skor {r['score']}/100)</p><ul>{items}</ul></section>")
@@ -701,7 +1033,8 @@ def _write_reports(results: list[dict], out_dir: str, console: Console) -> None:
         "padding:0 1rem;background:#0f1115;color:#e6e6e6}h1{color:#6cc}code{color:#9cf}"
         "section{border:1px solid #333;border-radius:8px;padding:1rem;margin:1rem 0;"
         "background:#161a22}li{margin:.25rem 0}</style>"
-        f"<h1>freease — URL Safety Report</h1><p>{datetime.now():%Y-%m-%d %H:%M:%S}</p>"
+        f"<h1>freease — URL Safety Report</h1><p>{datetime.now():%Y-%m-%d %H:%M:%S} · "
+        f"freease v{_esc(__version__)}</p>"
         + "".join(rows))
     hpath = Path(out_dir) / f"freease_scan_{ts}.html"
     try:
@@ -728,15 +1061,20 @@ def add_scan_args(p) -> None:
     g.add_argument("--offline", action="store_true",
                    help="Hanya analisis leksikal, tanpa koneksi jaringan")
     g.add_argument("--deep", action="store_true",
-                   help="Analisis lebih dalam (reserved untuk pemeriksaan tambahan)")
+                   help="Baca sumber HTML halaman tujuan (tanpa menjalankan JavaScript): "
+                        "form password, form ke domain lain, meta refresh, JS obfuskasi")
     g.add_argument("--scan-timeout", dest="scan_timeout", type=float, default=10.0,
                    metavar="SEC", help="Timeout per permintaan jaringan (default: 10)")
     g.add_argument("--max-redirects", dest="max_redirects", type=int, default=10,
                    metavar="N", help="Batas lompatan redirect yang ditelusuri (default: 10)")
     g.add_argument("--urlhaus", action="store_true",
-                   help="Cek URL di abuse.ch URLhaus (gratis, tanpa key)")
-    g.add_argument("--safebrowsing-key", dest="safebrowsing_key", default=None,
-                   metavar="KEY", help="Google Safe Browsing API key (opsional)")
+                   help="Cek URL di abuse.ch URLhaus (butuh Auth-Key gratis)")
+    g.add_argument("--urlhaus-key", dest="urlhaus_key",
+                   default=os.environ.get("URLHAUS_AUTH_KEY"), metavar="KEY",
+                   help="Auth-Key abuse.ch dari https://auth.abuse.ch/ (atau env URLHAUS_AUTH_KEY)")
+    g.add_argument("--safebrowsing-key", dest="safebrowsing_key",
+                   default=os.environ.get("SAFEBROWSING_API_KEY"), metavar="KEY",
+                   help="Google Safe Browsing API key, opsional (atau env SAFEBROWSING_API_KEY)")
 
 
 def _collect_urls(args) -> list[str]:
@@ -767,6 +1105,11 @@ def run_scan_from_args(args, console: Optional[Console] = None) -> dict:
         console.print("  [yellow]Tidak ada URL. Pakai -s URL atau --scan-list FILE.[/yellow]")
         return {"error": "tidak ada URL", "results": []}
 
+    if not 1 <= getattr(args, "scan_timeout", 10.0) <= 120:
+        console.print("  [yellow]\\[!] --scan-timeout di luar 1–120 detik, dipakai 10.[/yellow]")
+        args.scan_timeout = 10.0
+    args.max_redirects = max(0, min(30, getattr(args, "max_redirects", 10)))
+
     results = []
     worst = 0
     for url in urls:
@@ -778,9 +1121,15 @@ def run_scan_from_args(args, console: Optional[Console] = None) -> dict:
             max_redirects=getattr(args, "max_redirects", 10),
             use_urlhaus=getattr(args, "urlhaus", False),
             safebrowsing_key=getattr(args, "safebrowsing_key", None),
+            urlhaus_key=getattr(args, "urlhaus_key", None),
         )
-        with console.status(f"[cyan]Memindai {escape(url[:60])}…"):
-            res = scanner.scan()
+        try:
+            with console.status(f"[cyan]Memindai {escape(url[:60])}…"):
+                res = scanner.scan()
+        except Exception as e:   # satu URL rusak tidak boleh menghentikan batch
+            console.print(f"  [red]\\[x] Gagal memindai {escape(url[:80])}: "
+                          f"{escape(str(e)[:150])}[/red]")
+            continue
         render_result(res, console)
         results.append(res)
         worst = max(worst, res["score"])

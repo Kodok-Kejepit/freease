@@ -6,7 +6,8 @@ aiohttp>=3.9.0
 dnspython>=2.4.0
 rich>=13.7.0
 
-# Modul YouTube (-y). Update rutin: pip install -U yt-dlp
+# Downloader (-y), pencarian (-S), dan streaming link di player (-p).
+# Update rutin: pip install -U yt-dlp
 yt-dlp>=2025.1.1
 mutagen>=1.47.0
 

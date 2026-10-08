@@ -1,22 +1,23 @@
 ```
-  ███████╗██████╗ ███████╗ █████╗ ███████╗███████╗
-  ██╔════╝██╔══██╗██╔════╝██╔══██╗██╔════╝██╔════╝
-  █████╗  ██████╔╝█████╗  ███████║███████╗█████╗
-  ██╔══╝  ██╔══██╗██╔══╝  ██╔══██║╚════██║██╔══╝
-  ██║     ██║  ██║███████╗██║  ██║███████║███████╗
-  ╚═╝     ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝
+  ███████╗██████╗ ███████╗███████╗ █████╗ ███████╗███████╗
+  ██╔════╝██╔══██╗██╔════╝██╔════╝██╔══██╗██╔════╝██╔════╝
+  █████╗  ██████╔╝█████╗  █████╗  ███████║███████╗█████╗
+  ██╔══╝  ██╔══██╗██╔══╝  ██╔══╝  ██╔══██║╚════██║██╔══╝
+  ██║     ██║  ██║███████╗███████╗██║  ██║███████║███████╗
+  ╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝
 ```
 
 # freease
 
 Tool recon dan audit attack surface berbasis terminal, ditulis dengan Python.
-Versi 2.2.0, oleh Kodok-Kejepit.
+Versi 1.64.2, oleh Kodok-Kejepit.
 
 freease menggabungkan beberapa pekerjaan yang biasanya butuh banyak tool terpisah:
 recon domain, port scan, deteksi WAF, WHOIS, cek keamanan email, cek username,
 cek kebocoran email, reputasi IP, ekstraksi metadata, pemeriksa tautan
-phishing, downloader YouTube, dan pemutar audio/video. Semuanya dijalankan
-dari satu perintah, `freease.py`.
+phishing, pencarian lagu dan web, downloader (YouTube, Pinterest, dan ratusan situs
+lain), serta pemutar audio/video. Semuanya dijalankan dari satu perintah,
+`freease.py`.
 
 > Pakai hanya pada domain, IP, akun, atau aset yang kamu miliki, atau yang
 > pemiliknya sudah memberi izin. Penyalahgunaan di luar itu tanggung jawab
@@ -29,12 +30,14 @@ dari satu perintah, `freease.py`.
 - [Pemakaian singkat](#pemakaian-singkat)
 - [Modul recon](#modul-recon)
 - [URL Safety Scanner](#url-safety-scanner)
+- [Pencarian](#pencarian)
 - [Media Player](#media-player)
-- [YouTube Downloader](#youtube-downloader)
+- [Media Downloader](#media-downloader)
 - [Semua opsi](#semua-opsi)
 - [Laporan](#laporan)
 - [Struktur file](#struktur-file)
 - [Batasan](#batasan)
+- [Versi & changelog](#versi--changelog)
 - [Lisensi](#lisensi)
 
 
@@ -62,11 +65,11 @@ Beberapa modul memakai program sistem. Pasang hanya yang kamu perlukan:
 
 | Program        | Dipakai oleh                                        | Debian/Ubuntu                               |
 |----------------|-----------------------------------------------------|---------------------------------------------|
-| ffmpeg         | YouTube (gabung video+audio, konversi), metadata player | `sudo apt install ffmpeg`              |
-| mpv            | Media player, termasuk video di dalam terminal      | `sudo apt install mpv`                      |
+| ffmpeg         | Downloader (gabung video+audio, konversi), metadata player | `sudo apt install ffmpeg`           |
+| mpv            | Media player, termasuk video di dalam terminal dan streaming hasil pencarian | `sudo apt install mpv` |
 | mpg123         | Media player, alternatif ringan untuk audio         | `sudo apt install mpg123`                   |
 | chafa / timg   | Media player, render video tanpa display grafis     | `sudo apt install chafa`                    |
-| node / deno    | YouTube, supaya semua format bisa dibaca yt-dlp     | `sudo apt install nodejs`                   |
+| node / deno    | Downloader & pencarian, supaya semua format YouTube bisa dibaca yt-dlp | `sudo apt install nodejs` |
 | exiftool       | Ekstraksi metadata (`-x`)                           | `sudo apt install libimage-exiftool-perl`   |
 
 URL Safety Scanner tidak butuh program tambahan.
@@ -78,8 +81,10 @@ URL Safety Scanner tidak butuh program tambahan.
 python freease.py -d example.com                      # recon domain lengkap
 python freease.py -u johndoe                          # cek username
 python freease.py -s "https://contoh.xyz/login"       # periksa tautan mencurigakan
+python freease.py -S "dewa 19 kangen"                 # cari lagu atau web, lalu putar/unduh/buka
 python freease.py -p ./Music --shuffle                # putar satu folder musik
 python freease.py -y "https://youtu.be/VIDEO_ID"      # download dari YouTube
+python freease.py -y "https://pin.it/xxxxxxx"         # download foto/video Pinterest
 ```
 
 Beberapa modul bisa digabung dalam satu perintah:
@@ -96,27 +101,64 @@ python freease.py -d example.com -u johndoe -e admin@example.com \
 
 Satu flag `-d` menjalankan lima pemeriksaan sekaligus secara paralel:
 
-- **NetworkRecon**: record DNS (A, AAAA, MX, TXT, NS, CNAME, SOA), subdomain dari
-  Certificate Transparency (crt.sh, cadangan Cert Spotter), deteksi server,
-  CMS, dan CDN, audit security header, serta info sertifikat SSL/TLS.
-- **PortScanner**: scan TCP async ke 22 port umum (FTP, SSH, SMTP, HTTP/S,
-  MySQL, RDP, PostgreSQL, Redis, Elasticsearch, MongoDB, dan lain-lain),
-  lengkap dengan banner grabbing. Port database dan remote access yang terbuka
-  ditandai sebagai sensitif. Bisa dilewati dengan `--skip-portscan`.
+- **NetworkRecon**: record DNS (A, AAAA, MX, TXT, NS, CNAME, SOA, CAA), status
+  DNSSEC, subdomain dari Certificate Transparency (crt.sh, cadangan Cert Spotter)
+  sekaligus dicek mana yang masih hidup (resolve ke IP), deteksi server, CMS,
+  generator, dan CDN, serta info sertifikat SSL/TLS (protokol, cipher, sisa
+  hari). Sertifikat yang tidak valid tetap dibaca detailnya supaya tanggal
+  kedaluwarsa dan penerbitnya terlihat.
+- **Audit konfigurasi web**: bukan sekadar cek header ada atau tidak, tapi juga
+  kualitasnya: HSTS terlalu pendek, CSP dengan `unsafe-inline`/`unsafe-eval`/
+  wildcard, proteksi clickjacking, CORS terbuka, header yang membocorkan versi
+  software, dan cookie tanpa flag `Secure`/`HttpOnly`/`SameSite`. Ada juga
+  pengecekan `security.txt` (RFC 9116).
+- **PortScanner**: scan TCP async ke 47 port umum (FTP, SSH, SMB, RDP, VNC,
+  MySQL, PostgreSQL, MSSQL, Redis, Elasticsearch, MongoDB, Docker API,
+  Kubernetes API, Memcached, dan lain-lain), lengkap dengan banner grabbing.
+  Port HTTP yang diam ditanya dengan `HEAD` supaya header `Server`-nya terbaca.
+  Layanan yang sering tanpa autentikasi (Docker API, Redis, Elasticsearch,
+  MongoDB, Memcached, CouchDB) ditandai **KRITIS**. Daftar port bisa diatur
+  dengan `--ports`, atau dilewati dengan `--skip-portscan`.
 - **WAFDetector**: mengenali 13 vendor WAF dari header, cookie, dan isi respons.
-- **WhoisChecker**: registrar, tanggal registrasi, dan umur domain lewat RDAP.
-- **EmailSecurityChecker**: SPF, DKIM (19 selector umum), DMARC, MTA-STS, dan BIMI.
+  Bukti dari DNS ikut dihitung: IP di range resmi Cloudflare, atau CNAME ke
+  CloudFront, Akamai, Imperva, Fastly, dan sejenisnya. Jadi CDN/WAF tetap
+  terdeteksi walau halaman web-nya tidak bisa diakses.
+- **WhoisChecker**: registrar, tanggal registrasi, umur domain, dan sisa hari
+  sebelum domain kedaluwarsa lewat RDAP.
+- **EmailSecurityChecker**: SPF (termasuk hitungan DNS lookup rekursif terhadap
+  batas 10 dari RFC 7208), DKIM (48 selector umum), DMARC (termasuk `sp=`,
+  record ganda, dan tag `p=` yang hilang), MTA-STS, TLS-RPT, dan BIMI.
 
 ```bash
 python freease.py -d example.com
 python freease.py -d example.com --skip-portscan -o ./laporan
+python freease.py -d example.com --ports top              # 47 port umum + port 1-1024
+python freease.py -d example.com --ports 22,80,443,8000-8100 --port-timeout 1
 ```
+
+| Opsi `--ports`      | Arti                                                 |
+|---------------------|------------------------------------------------------|
+| `default` (bawaan)  | 47 port umum                                         |
+| `top`               | 47 port umum + semua port 1–1024                     |
+| `22,80,443`         | daftar port                                          |
+| `1-1024,8080`       | rentang dan daftar boleh dicampur (maks 5000 port)   |
+
+Halaman web diambil dengan tiga percobaan berurutan: aiohttp biasa, aiohttp
+khusus IPv4 (untuk jaringan yang IPv6-nya bermasalah), lalu `urllib` bawaan
+Python. Kalau ketiganya gagal, alasan masing-masing ditampilkan, dan security
+header dilaporkan "tidak bisa dicek", bukan dianggap lengkap.
+
+Hal yang sama berlaku untuk keamanan email. Kalau query DNS-nya gagal,
+statusnya `UNKNOWN`, bukan `FAIL`. Hasil akhir hanya diberi label kalau
+protokol yang gagal dicek tidak mungkin mengubah hasilnya.
 
 ### Username (`-u`)
 
-Mengecek keberadaan username di 20 platform: GitHub, GitLab, Twitter/X,
-Instagram, LinkedIn, Reddit, TikTok, YouTube, Pinterest, Telegram, Medium,
-Dev.to, Keybase, Pastebin, HackerNews, Docker Hub, PyPI, npm, Gravatar, dan Flickr.
+Mengecek keberadaan username di 23 platform: GitHub, GitLab, Codeberg,
+Twitter/X, Instagram, LinkedIn, Reddit, TikTok, YouTube, Pinterest, Telegram,
+Medium, Dev.to, Keybase, Pastebin, HackerNews, Docker Hub, PyPI, npm, Gravatar,
+Flickr, Lichess, dan Chess.com. Platform yang membalas timeout atau rate limit
+dicoba ulang sekali.
 
 ```bash
 python freease.py -u johndoe
@@ -130,7 +172,8 @@ dihitung sebagai `FOUND`.
 
 Memeriksa email di Have I Been Pwned v3. Butuh API key dari
 https://haveibeenpwned.com/API/Key. Beberapa email bisa dipisah dengan koma, dan
-jeda antar-request diatur otomatis.
+jeda antar-request diatur otomatis. Kalau HIBP membalas rate limit, freease
+menunggu sesuai header `Retry-After` lalu mencoba lagi.
 
 ```bash
 python freease.py -e admin@example.com,info@example.com --hibp-key KEY_HIBP
@@ -141,7 +184,9 @@ python freease.py -e admin@example.com,info@example.com --hibp-key KEY_HIBP
 Menggabungkan data dari AbuseIPDB (skor abuse, flag TOR/proxy), AlienVault OTX
 (jumlah pulse, keluarga malware), dan ip-api.com (lokasi, ISP, ASN). OTX dan
 ip-api tidak butuh key. AbuseIPDB butuh key gratis dari
-https://www.abuseipdb.com/register.
+https://www.abuseipdb.com/register. Reverse DNS (PTR) tiap IP ikut ditampilkan.
+Kalau tidak ada satu pun feed reputasi yang bisa dihubungi, risikonya ditulis
+`UNKNOWN`, bukan `LOW`.
 
 ```bash
 python freease.py -i 1.2.3.4,8.8.8.8 --abuseipdb-key KEY_ABUSEIPDB
@@ -150,7 +195,10 @@ python freease.py -i 1.2.3.4,8.8.8.8 --abuseipdb-key KEY_ABUSEIPDB
 ### Metadata file (`-x`)
 
 Membaca metadata EXIF, IPTC, dan XMP dari file lokal maupun URL. Kalau ada
-koordinat GPS, link Google Maps-nya ikut ditampilkan.
+koordinat GPS, link Google Maps-nya ikut ditampilkan. freease juga menilai
+**risiko privasi** file itu: data apa saja yang ikut tersebar kalau file
+dibagikan apa adanya (lokasi, nama pembuat/pemilik, nomor seri kamera, model
+HP, software), lengkap dengan perintah untuk menghapusnya.
 
 ```bash
 python freease.py -x foto.jpg
@@ -161,14 +209,16 @@ python freease.py -x https://example.com/gambar.jpg
 ## URL Safety Scanner
 
 Dipakai untuk memeriksa tautan sebelum dibuka, misalnya link dari chat, email,
-atau SMS yang terasa janggal. Scanner ini tidak membuka halamannya. Tidak ada
+atau SMS yang terasa janggal. Scanner ini tidak merender halamannya. Tidak ada
 JavaScript yang dijalankan dan tidak ada file yang diunduh. Yang dilakukan
 hanya membaca struktur URL, melihat ke mana link itu diarahkan, dan
-mengecek sertifikat serta umur domainnya.
+mengecek sertifikat serta umur domainnya. Dengan `--deep`, sumber HTML
+halaman tujuan ikut dibaca sebagai teks.
 
 ```bash
 python freease.py -s "https://paypa1-login.verify-account.tk/signin"
-python freease.py -s "http://bit.ly/xxxx" --urlhaus
+python freease.py -s "http://bit.ly/xxxx" --urlhaus --urlhaus-key KEY
+python freease.py -s "https://contoh.xyz/login" --deep
 python freease.py -s "https://contoh.xyz" --offline
 python freease.py --scan-list daftar_url.txt -o ./laporan
 ```
@@ -194,10 +244,17 @@ Pemeriksaannya dibagi tiga tahap.
 
 **Struktur URL** (selalu jalan, tanpa internet)
 
-- host berupa IP, bukan nama domain
+- host berupa IP (IPv4/IPv6), termasuk IP yang disamarkan seperti
+  `http://3232235777/` atau `http://0xC0A80001/`
 - trik `user@host` yang menyembunyikan domain asli
-- Punycode (`xn--`) dan karakter yang mirip huruf lain, misalnya `paypa1` atau `g00gle`
-- nama domain yang mirip brand terkenal (typosquatting)
+- Punycode (`xn--`), huruf non-Latin, dan campuran aksara (mis. huruf Cyrillic
+  `а` di `pаypal.com`), serta karakter mirip seperti `paypa1` atau `g00gle`
+- nama domain yang mirip brand terkenal (typosquatting), termasuk brand lokal
+  (BCA, BRI, BNI, Mandiri, DANA, OVO, GoPay, Shopee, Tokopedia, dan lainnya).
+  Brand pendek hanya dihitung kalau berdiri sebagai kata sendiri atau dengan
+  imbuhan khas phishing (`klikbca`, `mybri`), jadi `fabric.com` tidak dianggap
+  meniru BRI. Domain resmi brand (mis. `google.co.id`, `user.github.io`) tidak
+  ikut dicurigai.
 - TLD yang sering disalahgunakan, seperti `.tk`, `.xyz`, `.top`, dan `.zip`
 - layanan pemendek URL (bit.ly, s.id, tinyurl, dan lain-lain)
 - subdomain yang terlalu dalam, host terlalu panjang, terlalu banyak tanda hubung atau angka
@@ -209,15 +266,38 @@ Pemeriksaannya dibagi tiga tahap.
 **Jaringan** (bisa dimatikan dengan `--offline`)
 
 - apakah domainnya benar-benar ada di DNS
-- rantai redirect, ditelusuri lewat request `HEAD` satu per satu
-- perpindahan ke domain lain di tengah rantai redirect
+- rantai redirect, ditelusuri lewat request `HEAD` satu per satu (pindah ke
+  `GET` tanpa membaca isi kalau server menolak `HEAD`)
+- perpindahan ke domain lain di tengah rantai redirect. Domain **tujuan
+  akhir** ikut dinilai (struktur URL dan umur domainnya), karena itulah yang
+  sebenarnya dibuka pengguna
 - sertifikat TLS: penerbit, masa berlaku, self-signed, cocok tidaknya dengan hostname, dan sertifikat yang baru terbit
 - umur domain lewat RDAP. Domain yang umurnya di bawah 30 hari diberi bobot tinggi.
 
+**Konten halaman** (`--deep`, opsional)
+
+Sumber HTML halaman tujuan dibaca sebagai teks (maks 512 KB). Tidak ada
+JavaScript yang dijalankan dan tidak ada gambar atau skrip lain yang dimuat.
+
+- form password, apalagi yang dikirim lewat HTTP
+- form yang mengirim data ke domain lain
+- meta refresh yang mengalihkan diam-diam ke domain lain
+- judul halaman menyebut brand tapi domainnya bukan milik brand itu
+- JavaScript yang diobfuskasi (`eval(atob(`, packer, dan sejenisnya)
+- iframe tersembunyi, permintaan seed phrase / private key
+- link yang langsung menyajikan file unduhan
+
 **Database ancaman** (opsional)
 
-- abuse.ch URLhaus lewat `--urlhaus` (gratis, tanpa key)
-- Google Safe Browsing lewat `--safebrowsing-key KEY`
+URL awal dan URL tujuan akhir sama-sama dicek.
+
+- abuse.ch URLhaus lewat `--urlhaus`. Sejak 2025 API abuse.ch wajib memakai
+  Auth-Key gratis dari https://auth.abuse.ch/, isi lewat `--urlhaus-key KEY`
+  atau environment variable `URLHAUS_AUTH_KEY`.
+- Google Safe Browsing lewat `--safebrowsing-key KEY` (atau `SAFEBROWSING_API_KEY`)
+
+Kalau database ancaman gagal dihubungi atau key-nya ditolak, alasannya
+ditampilkan, bukan diam-diam dianggap bersih.
 
 Setiap temuan menambah skor. Totalnya dibatasi 0 sampai 100, lalu dikelompokkan:
 
@@ -243,6 +323,114 @@ lolos dengan skor rendah. Untuk link yang benar-benar meragukan, gabungkan
 dengan `--urlhaus` atau Safe Browsing.
 
 
+## Pencarian
+
+Cari lagu atau video dari judul maupun potongan liriknya, atau cari apa saja
+di web. Hasil yang dipilih bisa langsung diputar, diunduh, dibuka di browser,
+atau diperiksa keamanannya dulu.
+
+```bash
+python freease.py -S "dewa 19 kangen"
+python freease.py -S "aku yang dulu bukanlah yang sekarang" --search-source yt
+python freease.py -S "hindia evaluasi" --search-source ytm
+python freease.py -S "cara install termux" --search-source web --search-region id-id
+```
+
+Kalau `--search-source` tidak diisi, freease menanyakan sumbernya dulu:
+
+```
+  Cari di mana?
+    1  YouTube
+    2  YouTube Music
+    3  SoundCloud
+    4  Web (DuckDuckGo)
+```
+
+| Sumber  | Cocok untuk                                                            |
+|---------|------------------------------------------------------------------------|
+| `yt`    | Judul atau potongan lirik, termasuk video lirik, cover, dan murottal   |
+| `ytm`   | Hanya lagu resmi dari bagian "Songs" YouTube Music                     |
+| `sc`    | Lagu di SoundCloud                                                     |
+| `web`   | Halaman web apa saja, lewat DuckDuckGo (tanpa API key)                 |
+
+Hasilnya tampil sebagai tabel bernomor, urut dari yang paling relevan.
+Nomor bisa dipilih satu (`3`), beberapa (`1,4`), rentang (`2-5`), atau
+semua (`a`). Setelah nomor dipilih, freease menanyakan aksi, dan aksi itu
+dijalankan untuk semua nomor yang dipilih. Contoh: `a` lalu `s` memeriksa
+keamanan semua link sekaligus. Setelah aksi selesai, daftar hasil muncul
+lagi. Ketik `c` untuk mencari kata kunci lain, `k` untuk kembali ke daftar
+sebelumnya (setelah menjelajah halaman), dan `q` untuk keluar.
+
+Aksi yang tersedia:
+
+| Tombol | Aksi                                   | Hasil media | Hasil web            |
+|--------|----------------------------------------|-------------|----------------------|
+| `p`    | putar audio                            | ya          | link media saja      |
+| `v`    | putar video di terminal                | ya          | link media saja      |
+| `h`    | putar video HD di aplikasi pemutar     | ya          | link media saja      |
+| `m`    | unduh musik (audio)                    | ya          | link media saja      |
+| `d`    | unduh video                            | ya          | link media saja      |
+| `j`    | jelajahi isi halaman                   | —           | ya                   |
+| `s`    | cek keamanan link (URL Safety Scanner) | —           | ya                   |
+| `o`    | buka di browser                        | —           | ya                   |
+| `l`    | tampilkan link lengkap                 | —           | ya                   |
+
+Di hasil web, link yang bisa langsung diputar atau diunduh (YouTube, TikTok,
+SoundCloud, dan situs lain yang dikenali yt-dlp) diberi label **media**.
+Sebelum membuka link di browser, freease memeriksa link itu secara cepat
+tanpa membukanya. Kalau hasilnya mencurigakan atau berbahaya, freease meminta
+konfirmasi dulu.
+
+### Menjelajahi isi halaman
+
+Aksi `j` membuka sebuah halaman hasil pencarian, lalu mengumpulkan semua
+yang ada di dalamnya menjadi daftar baru: video atau audio yang tertanam,
+link YouTube/SoundCloud/situs media lain, player yang disematkan (iframe),
+halaman lain di situs yang sama, dan link ke situs luar. Media ditaruh di
+urutan teratas. Dari daftar itu Anda bisa memutar, mengunduh, atau
+menjelajah lebih dalam lagi, lalu kembali dengan `k`.
+
+Sebelum dijelajahi, halaman diperiksa dulu tanpa dibuka. Kalau hasilnya
+mencurigakan, freease meminta konfirmasi. freease tidak menjalankan
+JavaScript, jadi situs yang memuat isinya lewat JavaScript (banyak situs
+streaming film dan anime) sering tidak memperlihatkan videonya. Situs seperti
+itu juga sering memuat iklan berbahaya dan konten bajakan; gunakan dengan
+hati-hati dan hanya untuk konten yang memang boleh diakses.
+
+Pencarian web memakai DuckDuckGo versi HTML. Google dan Yandex sengaja tidak
+dipakai, karena keduanya cepat memblokir pencarian otomatis dengan captcha.
+Kalau DuckDuckGo meminta verifikasi anti-bot, freease akan memberi tahu.
+Tunggu beberapa menit, lalu coba lagi.
+
+Kalau koneksi ke DuckDuckGo dibelokkan oleh jaringan (misalnya diblokir
+ISP lewat DNS), freease mencari alamat asli DuckDuckGo lewat DNS-over-HTTPS
+lalu menyambung langsung, dengan sertifikat tetap diverifikasi. Kalau
+pemblokirannya lebih dalam dari DNS, gunakan VPN atau aplikasi 1.1.1.1.
+
+Tanpa menu (berguna untuk script), pakai `--search-action` dan `--search-pick`:
+
+```bash
+python freease.py -S "tulus hati-hati di jalan" --search-source yt --search-action music
+python freease.py -S "nadin amizah" --search-source yt --search-action play --search-pick 1-5
+python freease.py -S "phishing bank" --search-source web --search-action scan --search-pick 1-3
+```
+
+| Opsi                | Fungsi                                                         |
+|---------------------|----------------------------------------------------------------|
+| `--search-source`   | `yt`, `ytm`, `sc`, atau `web`; kalau kosong ditanyakan          |
+| `--search-limit N`  | Jumlah hasil, default 10, maksimal 50                           |
+| `--search-action`   | `list`, `play`, `play-video`, `play-hd`, `music`, `video`, `scan`, `open`, `link`, `explore` |
+| `--search-pick`     | Nomor hasil yang diproses, contoh `1`, `1,3`, `2-4` (default 1) |
+| `--search-region`   | Wilayah pencarian web, contoh `id-id`, `us-en` (default global) |
+
+Unduhan dari hasil pencarian memakai opsi downloader yang sama (`--yt-dir`,
+`--yt-audio-format`, `--yt-bitrate`, `--yt-quality`). Pemutarannya memakai
+opsi player yang sama (`--volume`, `--speed`, `--pl-backend`, `--pl-quality`).
+
+Pinterest tidak ada di daftar sumber, karena yt-dlp tidak menyediakan
+pencarian Pinterest. Untuk Pinterest, tempel link pin atau board ke `-y`.
+
+
 ## Media Player
 
 Memutar audio dan video langsung dari terminal. Formatnya mengikuti apa yang
@@ -255,12 +443,16 @@ python freease.py -p ./Music --shuffle --loop
 python freease.py -p "./Music/*.flac"
 python freease.py -p film.mkv --subtitle film.srt --start 1:30
 python freease.py -p film.mkv --audio-only
-python freease.py -p "https://youtu.be/VIDEO_ID" --pl-backend mpv
+python freease.py -p "https://youtu.be/VIDEO_ID" --audio-only
+python freease.py -p "https://youtu.be/VIDEO_ID" --external
 python freease.py -p ./Music --list
 ```
 
 Sumbernya bisa berupa file, folder (otomatis jadi playlist, termasuk
-subfolder), pola glob, atau URL.
+subfolder), pola glob, atau link. Link YouTube dan situs lain diputar
+langsung tanpa diunduh dulu. mpv membukanya lewat yt-dlp; untuk ffplay,
+mplayer, dan vlc, freease mengubahnya dulu menjadi URL stream. Kalau stream
+online gagal dibuka, freease mencoba sekali lagi secara otomatis.
 
 Program pemutarnya dipilih otomatis dari yang terpasang:
 
@@ -270,32 +462,80 @@ Program pemutarnya dipilih otomatis dari yang terpasang:
 | Video, tanpa display (Termux/SSH)| mpv `--vo=tct`, timg, ffmpeg + chafa   |
 | Audio                            | mpv, ffplay, mplayer, mpg123, cvlc     |
 
-Di Termux atau sesi SSH, mpv bisa menampilkan video langsung di terminal
-lengkap dengan suaranya. timg dan chafa hanya menampilkan gambar tanpa suara,
-jadi keduanya cuma dipakai kalau mpv tidak ada.
+### Kualitas video di terminal dan mode HD
+
+Video yang diputar di dalam terminal memang terlihat kotak-kotak, berapa pun
+resolusi videonya. Mode `tct` menggambar video dengan karakter teks, dan
+setiap karakter hanya bisa menampilkan 2 piksel berwarna. Terminal HP yang
+lebarnya sekitar 100 kolom berarti gambarnya cuma sekitar 100×80 piksel.
+Karena itu stream untuk mode ini dibatasi 480p: resolusi lebih tinggi tidak
+membuat gambar lebih tajam, hanya membuang kuota dan CPU.
+
+Untuk video yang jernih, ada dua cara:
+
+1. **`--external` (atau `--hd`, atau aksi `h` di pencarian).** Video dibuka
+   di aplikasi pemutar. Di Android (Termux), freease mengirimkan stream ke
+   aplikasi seperti VLC, MX Player, atau mpv-android lewat menu "Buka dengan".
+   Di Linux desktop, video dibuka di jendela mpv. Resolusi targetnya diatur
+   dengan `--pl-quality` (default 720).
+
+   Aplikasi pemutar Android butuh satu link yang berisi video dan audio
+   sekaligus. YouTube biasanya tidak menyediakan link seperti itu, jadi
+   freease menawarkan untuk mengunduh videonya dulu (video dan audio digabung
+   ffmpeg), lalu membukanya di aplikasi. Saat mengunduh, daftar resolusi yang
+   tersedia ditampilkan untuk dipilih, kecuali `--pl-quality` sudah diisi.
+
+   Supaya aplikasi pemutar bisa membaca file dari Termux, Termux harus
+   mengizinkannya. Tanpa pengaturan ini, aplikasi pemutar hanya menampilkan
+   "Pemutar eror". freease akan menawarkan untuk mengaktifkannya, atau
+   aktifkan sendiri:
+
+   ```bash
+   echo "allow-external-apps = true" >> ~/.termux/termux.properties
+   termux-reload-settings
+   ```
+
+   Pengaturan ini juga membolehkan aplikasi yang Anda beri izin "Run commands
+   in Termux" menjalankan perintah di Termux, jadi jangan berikan izin itu ke
+   aplikasi yang tidak dikenal.
+
+2. **`--pl-vo sixel` atau `--pl-vo kitty`.** Video digambar dengan piksel
+   asli di dalam terminal, sehingga jauh lebih tajam dari `tct`. Ini hanya
+   bisa dipakai di terminal yang mendukung grafis sixel (misalnya foot,
+   WezTerm, xterm dengan sixel) atau kitty. freease menanyakan dukungan
+   sixel ke terminal sebelum memutar; kalau tidak didukung, otomatis kembali
+   ke mode `tct` supaya layar tidak dipenuhi karakter acak.
+
+Saat video tampil di terminal, baris status mpv dimatikan supaya tidak
+menimpa gambar. Di mesin tanpa perangkat audio, mpv tetap memutar videonya.
 
 Kontrol selama pemutaran memakai tombol bawaan pemutarnya. Di mpv dan ffplay:
 `Space` untuk pause, panah kiri/kanan untuk maju-mundur, `9`/`0` untuk volume,
 `q` untuk lanjut ke lagu berikutnya, dan `Ctrl+C` untuk berhenti.
 
-| Opsi              | Fungsi                                                  |
-|-------------------|---------------------------------------------------------|
-| `--audio-only`    | Putar suaranya saja walaupun file-nya video             |
-| `--loop`          | Ulangi file atau seluruh playlist                       |
-| `--shuffle`       | Acak urutan playlist                                    |
-| `--volume N`      | Volume awal, 0–200 (default 100)                        |
-| `--start POS`     | Mulai dari detik tertentu, contoh `90` atau `1:30`      |
-| `--speed X`       | Kecepatan putar, contoh `1.5` (mpv dan mplayer)         |
-| `--subtitle FILE` | Subtitle dari file terpisah (mpv)                       |
-| `--pl-backend`    | Paksa pakai pemutar tertentu                            |
-| `--no-recursive`  | Jangan ikut membaca subfolder                           |
-| `--list`          | Tampilkan antrian saja, tanpa memutar                   |
+| Opsi                 | Fungsi                                                    |
+|----------------------|-----------------------------------------------------------|
+| `--audio-only`       | Putar suaranya saja walaupun sumbernya video              |
+| `--external`, `--hd` | Putar video HD di aplikasi pemutar                        |
+| `--pl-quality P`     | Resolusi target untuk `--external` dan sixel/kitty (default 720; ditanyakan saat perlu mengunduh) |
+| `--pl-vo`            | `tct` (default), `sixel`, atau `kitty`                    |
+| `--loop`             | Ulangi file atau seluruh playlist                         |
+| `--shuffle`          | Acak urutan playlist                                      |
+| `--volume N`         | Volume awal, 0–200 (default 100)                          |
+| `--start POS`        | Mulai dari detik tertentu, contoh `90` atau `1:30`        |
+| `--speed X`          | Kecepatan putar, contoh `1.5` (mpv dan mplayer)           |
+| `--subtitle FILE`    | Subtitle dari file terpisah (mpv)                         |
+| `--pl-backend`       | Paksa pakai pemutar tertentu                              |
+| `--no-recursive`     | Jangan ikut membaca subfolder                             |
+| `--list`             | Tampilkan antrian saja, tanpa memutar                     |
 
 
-## YouTube Downloader
+## Media Downloader
 
-Download video atau musik dari YouTube dan YouTube Music, mulai dari 144p
-sampai 4K. Kalau mode dan kualitasnya tidak diisi, pilihannya akan ditanyakan.
+Download video, musik, atau foto dari link. Yang didukung: YouTube, YouTube
+Music, Pinterest, dan semua situs lain yang dikenali yt-dlp, misalnya TikTok,
+Instagram, X/Twitter, Facebook, SoundCloud, Vimeo, Twitch, Bandcamp, dan
+ratusan lainnya. Flag `-y` dan `-D` sama saja.
 
 ```bash
 python freease.py -y "https://youtu.be/VIDEO_ID"
@@ -304,7 +544,27 @@ python freease.py -y "https://music.youtube.com/watch?v=ID" --yt-mode musik
 python freease.py -y "https://music.youtube.com/watch?v=ID" --yt-mode musik \
   --yt-audio-format m4a --yt-bitrate 320
 python freease.py -y "https://youtube.com/playlist?list=ID" --yt-mode musik --yt-playlist
+python freease.py -D "https://www.tiktok.com/@user/video/ID"
 ```
+
+Kalau mode dan kualitasnya tidak diisi, pilihannya akan ditanyakan. Link dari
+YouTube Music, SoundCloud, Bandcamp, Audiomack, dan Mixcloud otomatis
+ditawarkan sebagai musik.
+
+### Pinterest
+
+```bash
+python freease.py -y "https://www.pinterest.com/pin/ID/"     # satu pin
+python freease.py -y "https://pin.it/xxxxxxx"                # link pendek dari aplikasi
+python freease.py -y "https://www.pinterest.com/user/board/" # seluruh isi board
+```
+
+- **Pin video** diunduh seperti video biasa.
+- **Pin foto** diunduh dalam resolusi asli (versi `originals`), bukan thumbnail.
+  yt-dlp sendiri tidak bisa mengunduh pin foto, jadi freease mengambil URL
+  gambarnya dari metadata lalu mengunduhnya langsung.
+- **Board** diunduh pin per pin ke subfolder bernama sesuai board. Isinya
+  boleh campuran foto dan video.
 
 | Opsi                | Nilai                                                        |
 |---------------------|--------------------------------------------------------------|
@@ -313,11 +573,16 @@ python freease.py -y "https://youtube.com/playlist?list=ID" --yt-mode musik --yt
 | `--yt-audio-format` | `mp3` (default), `m4a`, `opus`, `flac`, `wav`                |
 | `--yt-bitrate`      | `128`, `192` (default), `256`, `320`                         |
 | `--yt-container`    | `mp4` (default) atau `mkv`                                   |
-| `--yt-playlist`     | Download seluruh playlist atau album                         |
+| `--yt-playlist`     | Download seluruh playlist, album, atau board tanpa ditanya   |
 | `--yt-dir`          | Folder tujuan (default `./freease_downloads`)                |
+| `--yt-cookies FILE` | File `cookies.txt` (format Netscape) untuk konten yang butuh login / dibatasi umur |
+| `--yt-browser-cookies B` | Ambil cookies langsung dari browser: `chrome`, `firefox`, `edge`, `brave`, … |
+| `--yt-subs LANG`    | Sematkan subtitle ke video, mis. `id` atau `id,en` (butuh ffmpeg) |
 
 Kalau resolusi yang diminta tidak tersedia, download turun ke resolusi
 terdekat di bawahnya. Musik otomatis diberi tag judul, artis, dan cover.
+Kalau download gagal atau dibatalkan, file sementara (`.part`, thumbnail,
+subtitle) yang sempat dibuat langsung dibersihkan.
 
 Gunakan hanya untuk konten milikmu sendiri atau yang memang boleh diunduh.
 
@@ -327,19 +592,24 @@ Gunakan hanya untuk konten milikmu sendiri atau yang memang boleh diunduh.
 | Opsi                    | Keterangan                                          |
 |-------------------------|-----------------------------------------------------|
 | `-d DOMAIN`             | Recon domain (5 modul paralel)                      |
-| `-u USERNAME`           | Cek username di 20 platform                         |
+| `-u USERNAME`           | Cek username di 23 platform                         |
 | `-e EMAIL[,EMAIL]`      | Cek kebocoran email (HIBP)                          |
 | `-i IP[,IP]`            | Reputasi IP atau domain                             |
 | `-x FILE/URL`           | Ekstraksi metadata                                  |
 | `-s URL`                | Periksa satu tautan                                 |
 | `--scan-list FILE`      | Periksa banyak tautan dari file                     |
-| `-p SRC [SRC ...]`      | Putar audio/video                                   |
-| `-y URL`                | Download dari YouTube                               |
+| `-S QUERY`              | Cari lagu/video/web, lalu putar, unduh, atau buka   |
+| `-p SRC [SRC ...]`      | Putar audio/video (file, folder, atau link)         |
+| `-y URL`, `-D URL`      | Download dari YouTube, Pinterest, dan situs lain    |
 | `--hibp-key KEY`        | API key Have I Been Pwned                           |
 | `--abuseipdb-key KEY`   | API key AbuseIPDB                                   |
 | `--skip-portscan`       | Lewati port scan                                    |
+| `--ports SPEC`          | Port yang dipindai: `default`, `top`, `22,80`, `1-1024` |
+| `--port-timeout SEC`    | Timeout koneksi per port (default 2)                |
 | `--offline`             | Scanner tanpa koneksi jaringan                      |
+| `--deep`                | Scanner ikut membaca sumber HTML halaman tujuan     |
 | `--urlhaus`             | Scanner ikut cek ke URLhaus                         |
+| `--urlhaus-key KEY`     | Auth-Key abuse.ch untuk URLhaus                     |
 | `--safebrowsing-key KEY`| Scanner ikut cek ke Google Safe Browsing            |
 | `--scan-timeout SEC`    | Timeout tiap request scanner (default 10)           |
 | `--max-redirects N`     | Batas redirect yang ditelusuri (default 10)         |
@@ -347,8 +617,27 @@ Gunakan hanya untuk konten milikmu sendiri atau yang memang boleh diunduh.
 | `--no-export`           | Tampilkan di terminal saja, tanpa file laporan      |
 | `-V`, `--version`       | Tampilkan versi                                     |
 
-Opsi lengkap media player dan YouTube ada di bagian masing-masing di atas,
-atau lihat lewat `python freease.py --help`.
+Semua API key juga bisa diisi lewat environment variable supaya tidak
+tersimpan di riwayat shell: `HIBP_API_KEY`, `ABUSEIPDB_API_KEY`,
+`URLHAUS_AUTH_KEY`, dan `SAFEBROWSING_API_KEY`.
+
+```bash
+export HIBP_API_KEY="..."
+python freease.py -e admin@example.com
+```
+
+Opsi lengkap pencarian, player, dan downloader ada di bagian masing-masing
+di atas, atau lihat lewat `python freease.py --help`.
+
+Penanda di output terminal:
+
+| Penanda | Arti                     |
+|---------|--------------------------|
+| `[+]`   | berhasil / aman          |
+| `[x]`   | gagal / bahaya           |
+| `[!]`   | peringatan               |
+| `[*]`   | informasi                |
+| `[>]`   | sedang berjalan          |
 
 
 ## Laporan
@@ -373,19 +662,24 @@ browser dan berisi ringkasan skor, temuan per modul, serta badge status.
 ```
 freease.py                   entry point, modul recon, laporan
 freease_scan.py              URL Safety Scanner
+freease_search.py            pencarian lagu, video, dan web
 freease_player.py            media player
-freease_youtube.py           YouTube downloader
-freease_exiftool_module.py   ekstraksi metadata
+freease_youtube.py           media downloader (YouTube, Pinterest, dll)
+freease_exiftool_module.py   ekstraksi metadata + penilaian risiko privasi
+freease_version.py           nomor versi (satu-satunya tempat versi ditulis)
+CHANGELOG.md                 catatan perubahan tiap versi
 requirements.txt
 ```
 
-`freease_scan.py`, `freease_player.py`, dan `freease_youtube.py` juga bisa
-dijalankan sendiri tanpa lewat `freease.py`:
+Modul scanner, pencarian, player, dan downloader juga bisa dijalankan
+sendiri tanpa lewat `freease.py`:
 
 ```bash
 python freease_scan.py "https://contoh.xyz"
+python freease_search.py "dewa 19 kangen"
 python freease_player.py ./Music --shuffle
 python freease_youtube.py "https://youtu.be/VIDEO_ID"
+python freease_exiftool_module.py foto.jpg
 ```
 
 
@@ -397,8 +691,25 @@ python freease_youtube.py "https://youtu.be/VIDEO_ID"
   Kalau satu sumber gagal, modul lain tetap jalan.
 - Scanner hanya bisa menilai apa yang terlihat dari luar. Halaman phishing yang
   dipasang di domain lama yang sudah diretas bisa saja lolos.
+- Downloader dan pencarian bergantung pada yt-dlp. Kalau YouTube atau situs lain
+  mengubah sistemnya, perbarui dengan `pip install -U yt-dlp`.
+- Pin Pinterest yang diprivat atau butuh login tidak bisa diunduh. Hal yang
+  sama berlaku di Instagram, Facebook, dan X: banyak kontennya hanya bisa
+  diambil oleh akun yang sudah login. Untuk konten milikmu sendiri, pakai
+  `--yt-cookies` atau `--yt-browser-cookies`.
 - freease tidak melakukan brute force, eksploitasi, atau akses ke sistem
   tanpa izin.
+
+
+## Versi & changelog
+
+Nomor versi hanya ditulis di satu tempat, `freease_version.py`. Banner,
+`--version`, laporan JSON/HTML, dan semua modul membacanya dari sana.
+Riwayat perubahan ada di [CHANGELOG.md](CHANGELOG.md).
+
+```bash
+python freease.py --version
+```
 
 
 ## Lisensi

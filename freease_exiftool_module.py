@@ -1,39 +1,40 @@
+#!/usr/bin/env python3
 """
-╔══════════════════════════════════════════════════════════════╗
-║   freease v2.0.0 — MODULE 7: EXIFTOOL METADATA EXTRACTOR    ║
-║   by: Kodok-Kejepit                                          ║
-║   Integrate ke dalam class FreeaseEngine & build_parser()   ║
-╚══════════════════════════════════════════════════════════════╝
+freease — Modul 9: ExifTool Metadata Extractor
+by: Kodok-Kejepit
 
-INTEGRASI CEPAT:
-  1. Tambahkan import di bagian atas freease.py (lihat IMPORTS di bawah)
-  2. Paste class ExifToolExtractor ke dalam freease.py
-  3. Tambahkan argumen CLI ke build_parser()  (lihat ARGPARSE PATCH)
-  4. Tambahkan pemanggilan di FreeaseEngine.run() (lihat ENGINE PATCH)
-  5. Tambahkan _print_exiftool() ke FreeaseEngine  (sudah include di class)
+Ekstraksi metadata file lokal atau URL remote (EXIF, GPS → Google Maps, IPTC,
+XMP, metadata dokumen) lewat binary ExifTool, plus penilaian privasi: data apa
+saja di file ini yang bisa membocorkan lokasi, identitas, atau perangkat.
+
+Dipakai oleh freease.py (-x FILE/URL) atau langsung:
+  python freease_exiftool_module.py foto.jpg
+  python freease_exiftool_module.py https://example.com/dokumen.pdf --raw
+
+Butuh ExifTool:  sudo apt install libimage-exiftool-perl  ·  pkg install exiftool
 """
 
-# ──────────────────────────────────────────────────────────────
-#  IMPORTS TAMBAHAN (merge ke bagian import freease.py)
-# ──────────────────────────────────────────────────────────────
+import json
 import os
 import re
-import json
 import shutil
 import subprocess
 import tempfile
-import urllib.request
+import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
-# rich sudah di-import di freease.py (Console, Table, box, Panel, Progress, dll)
-# Tidak perlu import ulang, cukup reuse `console` yang sudah ada.
+from rich import box
+from rich.markup import escape
+from rich.table import Table
 
+BROWSER_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0 Safari/537.36"
+)
 
-# ══════════════════════════════════════════════════════════════
-#  MODULE 7: EXIFTOOL METADATA EXTRACTOR
-# ══════════════════════════════════════════════════════════════
 
 class ExifToolExtractor:
     """
@@ -43,62 +44,92 @@ class ExifToolExtractor:
     Me-return dictionary lengkap untuk integrasi ke laporan JSON/HTML.
     """
 
-    # Field yang diprioritaskan untuk ditampilkan (urutan tampilan)
-    _PRIORITY_FIELDS: list[tuple[str, str]] = [
-        # (exiftool_key,          label_tampilan)
-        ("FileName",              "File Name"),
-        ("FileSize",              "File Size"),
-        ("FileType",              "File Type"),
-        ("MIMEType",              "MIME Type"),
-        ("ImageWidth",            "Image Width"),
-        ("ImageHeight",           "Image Height"),
-        ("ColorSpace",            "Color Space"),
-        ("BitDepth",              "Bit Depth"),
-        ("Compression",           "Compression"),
-        ("CreateDate",            "Create Date"),
-        ("DateTimeOriginal",      "Date Time Original"),
-        ("ModifyDate",            "Modify Date"),
-        ("FileModifyDate",        "File Modify Date"),
-        ("Software",              "Software / Creator"),
-        ("Creator",               "Creator"),
-        ("Author",                "Author"),
-        ("Producer",              "Producer"),
-        ("Make",                  "Camera Make"),
-        ("Model",                 "Camera Model"),
-        ("LensModel",             "Lens Model"),
-        ("ExposureTime",          "Exposure Time"),
-        ("FNumber",               "F-Number"),
-        ("ISO",                   "ISO Speed"),
-        ("FocalLength",           "Focal Length"),
-        ("Flash",                 "Flash"),
-        ("GPSLatitude",           "GPS Latitude"),
-        ("GPSLongitude",          "GPS Longitude"),
-        ("GPSAltitude",           "GPS Altitude"),
-        ("GPSLatitudeRef",        "GPS Lat Ref"),
-        ("GPSLongitudeRef",       "GPS Lon Ref"),
-        ("GPSPosition",           "GPS Position"),
-        ("Comment",               "Comment"),
-        ("Description",           "Description"),
-        ("Title",                 "Title"),
-        ("Keywords",              "Keywords"),
-        ("Copyright",             "Copyright"),
-        ("XMPToolkit",            "XMP Toolkit"),
-        ("DocumentID",            "Document ID"),
-        ("InstanceID",            "Instance ID"),
-        ("PageCount",             "Page Count"),
-        ("Language",              "Language"),
+    _PRIORITY_FIELDS: list = [
+        ("FileName",         "File Name"),
+        ("FileSize",         "File Size"),
+        ("FileType",         "File Type"),
+        ("MIMEType",         "MIME Type"),
+        ("ImageWidth",       "Image Width"),
+        ("ImageHeight",      "Image Height"),
+        ("ColorSpace",       "Color Space"),
+        ("BitDepth",         "Bit Depth"),
+        ("Compression",      "Compression"),
+        ("CreateDate",       "Create Date"),
+        ("DateTimeOriginal", "Date Time Original"),
+        ("ModifyDate",       "Modify Date"),
+        ("FileModifyDate",   "File Modify Date"),
+        ("Software",         "Software / Creator"),
+        ("Creator",          "Creator"),
+        ("Author",           "Author"),
+        ("Producer",         "Producer"),
+        ("Make",             "Camera Make"),
+        ("Model",            "Camera Model"),
+        ("LensModel",        "Lens Model"),
+        ("ExposureTime",     "Exposure Time"),
+        ("FNumber",          "F-Number"),
+        ("ISO",              "ISO Speed"),
+        ("FocalLength",      "Focal Length"),
+        ("Flash",            "Flash"),
+        ("GPSLatitude",      "GPS Latitude"),
+        ("GPSLongitude",     "GPS Longitude"),
+        ("GPSAltitude",      "GPS Altitude"),
+        ("GPSLatitudeRef",   "GPS Lat Ref"),
+        ("GPSLongitudeRef",  "GPS Lon Ref"),
+        ("GPSPosition",      "GPS Position"),
+        ("Comment",          "Comment"),
+        ("Description",      "Description"),
+        ("Title",            "Title"),
+        ("Keywords",         "Keywords"),
+        ("Copyright",        "Copyright"),
+        ("XMPToolkit",       "XMP Toolkit"),
+        ("DocumentID",       "Document ID"),
+        ("InstanceID",       "Instance ID"),
+        ("PageCount",        "Page Count"),
+        ("Language",         "Language"),
+        ("Artist",           "Artist"),
+        ("OwnerName",        "Owner Name"),
+        ("SerialNumber",     "Serial Number"),
+        ("BodySerialNumber", "Body Serial"),
+        ("LensSerialNumber", "Lens Serial"),
+        ("HostComputer",     "Host Computer"),
+        ("LastModifiedBy",   "Last Modified By"),
+        ("Company",          "Company"),
+        ("CreatorTool",      "Creator Tool"),
+        ("GPSDateTime",      "GPS Date/Time"),
+        ("OffsetTimeOriginal", "Timezone Offset"),
+        ("UserComment",      "User Comment"),
     ]
 
-    _PRIORITY_KEYS: set[str] = {k for k, _ in _PRIORITY_FIELDS}
+    # Field yang membocorkan identitas / perangkat / lokasi → (kategori, saran)
+    _PRIVACY_FIELDS: dict = {
+        "GPSLatitude":      ("lokasi", "Koordinat GPS — lokasi pengambilan bisa dilacak"),
+        "GPSPosition":      ("lokasi", "Koordinat GPS — lokasi pengambilan bisa dilacak"),
+        "GPSDateTime":      ("lokasi", "Waktu GPS — kapan pemilik berada di lokasi itu"),
+        "Artist":           ("identitas", "Nama pembuat tertanam di file"),
+        "Author":           ("identitas", "Nama penulis dokumen"),
+        "Creator":          ("identitas", "Nama pembuat dokumen"),
+        "OwnerName":        ("identitas", "Nama pemilik kamera"),
+        "LastModifiedBy":   ("identitas", "Akun terakhir yang mengedit dokumen"),
+        "Company":          ("identitas", "Nama organisasi"),
+        "Copyright":        ("identitas", "Nama pemegang hak cipta"),
+        "SerialNumber":     ("perangkat", "Nomor seri perangkat — mengaitkan semua foto dari kamera sama"),
+        "BodySerialNumber": ("perangkat", "Nomor seri bodi kamera"),
+        "LensSerialNumber": ("perangkat", "Nomor seri lensa"),
+        "HostComputer":     ("perangkat", "Nama/model komputer pembuat"),
+        "Model":            ("perangkat", "Model perangkat/HP"),
+        "Software":         ("perangkat", "Software & versi yang dipakai"),
+        "OffsetTimeOriginal": ("lokasi", "Zona waktu — memperkirakan wilayah"),
+    }
+
+    _PRIORITY_KEYS: set = {k for k, _ in _PRIORITY_FIELDS}
+
+    MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
 
     def __init__(self, target: str):
-        """
-        target : path file lokal ATAU URL (http/https).
-        """
-        self.target      = target
-        self.is_url      = target.lower().startswith(("http://", "https://"))
-        self._tmp_file   : Optional[Path] = None
-        self.results     : dict = {
+        self.target    = target
+        self.is_url    = target.lower().startswith(("http://", "https://"))
+        self._tmp_file: Optional[Path] = None
+        self.results: dict = {
             "target":       target,
             "type":         "url" if self.is_url else "local",
             "error":        None,
@@ -106,17 +137,14 @@ class ExifToolExtractor:
             "filtered":     {},
             "gps_coords":   None,
             "maps_link":    None,
+            "privacy":      [],
+            "privacy_risk": None,
         }
 
-    # ──────────────────────────────────────────────────────────
-    #  PUBLIC API
-    # ──────────────────────────────────────────────────────────
+    # ── Public API ────────────────────────────────────────────
 
     def run(self) -> dict:
-        """
-        Entry point utama. Panggil ini, lalu tampilkan via print_results() atau
-        ambil self.results untuk laporan.
-        """
+        """Entry point utama. Return self.results dict."""
         if not self._check_exiftool():
             self.results["error"] = (
                 "ExifTool binary tidak ditemukan. "
@@ -128,15 +156,16 @@ class ExifToolExtractor:
         try:
             file_path = self._resolve_file()
             if file_path is None:
-                return self.results          # error sudah diset di _resolve_file
+                return self.results
 
             raw = self._run_exiftool(file_path)
             if raw is None:
-                return self.results          # error sudah diset di _run_exiftool
+                return self.results
 
             self.results["raw_metadata"] = raw
             self.results["filtered"]     = self._filter_metadata(raw)
             self._extract_gps(raw)
+            self._assess_privacy(raw)
 
         finally:
             self._cleanup()
@@ -144,37 +173,20 @@ class ExifToolExtractor:
         return self.results
 
     def print_results(self, console_obj) -> None:
-        """
-        Cetak tabel Rich ke console. Terima console dari freease.py agar tidak
-        instantiate ulang.
-        """
+        """Cetak tabel Rich ke console."""
         r = self.results
 
-        # ── Header section ──────────────────────────────────────
-        console_obj.print()
-        console_obj.rule(
-            "[bold cyan]MODULE 7 — EXIFTOOL METADATA EXTRACTOR[/bold cyan]",
-            style="dim cyan"
-        )
-        console_obj.print(
-            f"  [dim]Target:[/dim] [bold white]{r['target']}[/bold white]"
-            f"   [dim]Type:[/dim] [cyan]{r['type'].upper()}[/cyan]"
-        )
-        console_obj.print()
-
-        # ── Error state ──────────────────────────────────────────
         if r["error"]:
-            console_obj.print(f"  [bold red]✗ ERROR:[/bold red] [red]{r['error']}[/red]")
+            console_obj.print(f"  [bold red]\\[x] ERROR:[/bold red] [red]{escape(r['error'])}[/red]")
             console_obj.print()
             return
 
         filtered: dict = r.get("filtered", {})
         if not filtered:
-            console_obj.print("  [yellow]⚠ Tidak ada metadata yang dapat diekstrak.[/yellow]")
+            console_obj.print("  [yellow]\\[!] Tidak ada metadata yang dapat diekstrak.[/yellow]")
             console_obj.print()
             return
 
-        # ── Metadata table ───────────────────────────────────────
         t = Table(
             title="[bold cyan]Metadata Summary[/bold cyan]",
             box=box.ROUNDED,
@@ -183,16 +195,13 @@ class ExifToolExtractor:
             header_style="bold cyan",
             min_width=72,
         )
-        t.add_column("Field",  style="cyan",        width=26, no_wrap=True)
-        t.add_column("Value",  style="bold white",  width=48, overflow="fold")
+        t.add_column("Field", style="cyan",       width=26, no_wrap=True)
+        t.add_column("Value", style="bold white", width=48, overflow="fold")
 
-        # Render field sesuai urutan prioritas
         for key, label in self._PRIORITY_FIELDS:
             if key not in filtered:
                 continue
-            val = str(filtered[key])
-
-            # GPS field — beri highlight khusus
+            val = escape(str(filtered[key]))
             if key in ("GPSLatitude", "GPSLongitude", "GPSPosition"):
                 t.add_row(
                     f"[bold yellow]{label}[/bold yellow]",
@@ -203,12 +212,11 @@ class ExifToolExtractor:
 
         console_obj.print(t)
 
-        # ── GPS Intelligence ─────────────────────────────────────
         if r["gps_coords"] and r["maps_link"]:
             lat, lon = r["gps_coords"]
             console_obj.print()
             gps_table = Table(
-                title="[bold yellow]⚠  GPS INTELLIGENCE — LOCATION DETECTED[/bold yellow]",
+                title="[bold yellow]GPS INTELLIGENCE — LOCATION DETECTED[/bold yellow]",
                 box=box.DOUBLE_EDGE,
                 style="yellow",
                 show_header=False,
@@ -216,16 +224,33 @@ class ExifToolExtractor:
             )
             gps_table.add_column("Key",   style="bold yellow", width=24)
             gps_table.add_column("Value", style="bold white",  width=50, overflow="fold")
-            gps_table.add_row("Latitude",   str(lat))
-            gps_table.add_row("Longitude",  str(lon))
+            gps_table.add_row("Latitude",  str(lat))
+            gps_table.add_row("Longitude", str(lon))
             gps_table.add_row(
                 "Google Maps",
                 f"[bold underline cyan]{r['maps_link']}[/bold underline cyan]"
             )
             console_obj.print(gps_table)
 
-        # ── Stats footer ─────────────────────────────────────────
-        total_raw  = len(r.get("raw_metadata", {}))
+        if r.get("privacy"):
+            console_obj.print()
+            pc = {"HIGH": "bold red", "MEDIUM": "yellow", "LOW": "cyan"}.get(
+                r.get("privacy_risk"), "dim")
+            pt = Table(
+                title=f"[{pc}]Risiko Privasi: {r.get('privacy_risk')}[/{pc}]",
+                box=box.ROUNDED, style="dim", min_width=72,
+            )
+            pt.add_column("Kategori", style="bold", width=10)
+            pt.add_column("Field", style="cyan", width=18)
+            pt.add_column("Keterangan", overflow="fold")
+            for it in r["privacy"]:
+                pt.add_row(it["category"], it["field"], escape(it["note"]))
+            console_obj.print(pt)
+            console_obj.print(
+                "  [dim]Hapus metadata sebelum membagikan file: "
+                "[bold]exiftool -all= -overwrite_original FILE[/bold][/dim]")
+
+        total_raw   = len(r.get("raw_metadata", {}))
         total_shown = len(filtered)
         console_obj.print(
             f"\n  [dim]Ditampilkan [bold]{total_shown}[/bold] field krusial "
@@ -233,20 +258,32 @@ class ExifToolExtractor:
         )
         console_obj.print()
 
-    # ──────────────────────────────────────────────────────────
-    #  PRIVATE HELPERS
-    # ──────────────────────────────────────────────────────────
+    # ── Private helpers ───────────────────────────────────────
+
+    def _assess_privacy(self, raw: dict) -> None:
+        """Daftar data sensitif yang ikut tersebar kalau file ini dibagikan apa adanya."""
+        items, seen = [], set()
+        for key, (cat, why) in self._PRIVACY_FIELDS.items():
+            val = raw.get(key)
+            if val is None or str(val).strip() in ("", "0", "Unknown"):
+                continue
+            if key == "GPSPosition" and self.results.get("gps_coords") is None:
+                continue
+            if why in seen:
+                continue
+            seen.add(why)
+            items.append({"field": key, "category": cat, "value": str(val)[:80], "note": why})
+        self.results["privacy"] = items
+        cats = {i["category"] for i in items}
+        self.results["privacy_risk"] = (
+            "HIGH" if "lokasi" in cats and self.results.get("gps_coords") else
+            "MEDIUM" if cats & {"identitas", "perangkat"} and len(items) >= 2 else
+            "LOW" if items else "NONE")
 
     def _check_exiftool(self) -> bool:
-        """Verifikasi binary exiftool tersedia di PATH."""
         return shutil.which("exiftool") is not None
 
     def _resolve_file(self) -> Optional[Path]:
-        """
-        Return path ke file yang siap diproses.
-        Jika URL → download ke /tmp/, set self._tmp_file untuk cleanup.
-        Jika lokal → validasi exist, return Path-nya.
-        """
         if self.is_url:
             return self._download_url(self.target)
         else:
@@ -260,41 +297,47 @@ class ExifToolExtractor:
             return p
 
     def _download_url(self, url: str) -> Optional[Path]:
-        """
-        Download file dari URL ke direktori temp /tmp/freease_exif_*.
-        Return path file temp, atau None jika gagal.
-        """
         try:
-            # Tentukan ekstensi dari URL
-            parsed  = urllib.parse.urlparse(url)
+            parsed   = urllib.parse.urlparse(url)
             url_path = parsed.path.rstrip("/")
-            ext     = Path(url_path).suffix[:10] if Path(url_path).suffix else ".tmp"
+            ext      = Path(url_path).suffix[:10] if Path(url_path).suffix else ".tmp"
 
-            # Buat file temp
-            fd, tmp_path = tempfile.mkstemp(
-                suffix=ext,
-                prefix="freease_exif_",
-                dir="/tmp"
-            )
+            fd, tmp_path = tempfile.mkstemp(suffix=ext, prefix="freease_exif_")
             os.close(fd)
             self._tmp_file = Path(tmp_path)
 
-            # Download dengan timeout & user-agent agar tidak diblok
             req = urllib.request.Request(
                 url,
-                headers={"User-Agent": "Mozilla/5.0 (freease/2.0.0 OSINT-Tool)"}
+                headers={"User-Agent": BROWSER_UA}
             )
             with urllib.request.urlopen(req, timeout=30) as resp, \
                  open(tmp_path, "wb") as out:
-                chunk_size = 8192
+                declared = resp.headers.get("Content-Length")
+                if declared and declared.isdigit() and int(declared) > self.MAX_DOWNLOAD_BYTES:
+                    self.results["error"] = (
+                        f"File remote terlalu besar ({int(declared) // 1024 // 1024} MB, "
+                        f"batas {self.MAX_DOWNLOAD_BYTES // 1024 // 1024} MB) — dibatalkan"
+                    )
+                    return None
+                total = 0
                 while True:
-                    chunk = resp.read(chunk_size)
+                    chunk = resp.read(65536)
                     if not chunk:
                         break
+                    total += len(chunk)
+                    if total > self.MAX_DOWNLOAD_BYTES:
+                        self.results["error"] = (
+                            f"File remote terlalu besar "
+                            f"(>{self.MAX_DOWNLOAD_BYTES // 1024 // 1024} MB) — dibatalkan"
+                        )
+                        return None
                     out.write(chunk)
 
             return self._tmp_file
 
+        except urllib.error.HTTPError as e:
+            self.results["error"] = f"Gagal download URL — HTTP {e.code} {e.reason}"
+            return None
         except urllib.error.URLError as e:
             self.results["error"] = f"Gagal download URL — {e.reason}"
             return None
@@ -306,27 +349,24 @@ class ExifToolExtractor:
             return None
 
     def _run_exiftool(self, file_path: Path) -> Optional[dict]:
-        """
-        Jalankan: exiftool -json -n <file>
-        -n = output numerik untuk GPS (memudahkan parsing koordinat desimal).
-        Return dict metadata, atau None jika gagal.
-        """
         try:
             proc = subprocess.run(
-                ["exiftool", "-json", "-n", str(file_path)],
+                ["exiftool", "-json", "-n", "-api", "LargeFileSupport=1", str(file_path)],
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
 
             if proc.returncode not in (0, 1):
-                # ExifTool return 1 jika ada warning tapi masih output data
                 stderr_msg = proc.stderr.strip()[:200] if proc.stderr else "Unknown error"
                 self.results["error"] = f"ExifTool error (rc={proc.returncode}): {stderr_msg}"
                 return None
 
             if not proc.stdout.strip():
-                self.results["error"] = "ExifTool tidak menghasilkan output. File mungkin rusak atau tidak didukung."
+                self.results["error"] = (
+                    "ExifTool tidak menghasilkan output. "
+                    "File mungkin rusak atau tidak didukung."
+                )
                 return None
 
             parsed = json.loads(proc.stdout)
@@ -334,7 +374,7 @@ class ExifToolExtractor:
                 self.results["error"] = "Output ExifTool kosong atau format tidak dikenal."
                 return None
 
-            return parsed[0]  # ExifTool selalu return list, ambil elemen pertama
+            return parsed[0]
 
         except subprocess.TimeoutExpired:
             self.results["error"] = "ExifTool timeout (>30 detik) — file mungkin terlalu besar."
@@ -350,10 +390,6 @@ class ExifToolExtractor:
             return None
 
     def _filter_metadata(self, raw: dict) -> dict:
-        """
-        Ambil field-field krusial saja dari raw metadata.
-        Hapus field ExifTool internal (SourceFile, ExifToolVersion, dll).
-        """
         filtered: dict = {}
         for key, _label in self._PRIORITY_FIELDS:
             val = raw.get(key)
@@ -362,14 +398,9 @@ class ExifToolExtractor:
         return filtered
 
     def _extract_gps(self, raw: dict) -> None:
-        """
-        Ekstrak koordinat GPS dan generate Google Maps link.
-        ExifTool dengan flag -n mengembalikan koordinat dalam format desimal murni.
-        """
         lat = raw.get("GPSLatitude")
         lon = raw.get("GPSLongitude")
 
-        # Fallback: coba parse dari GPSPosition string jika ada
         if (lat is None or lon is None) and raw.get("GPSPosition"):
             lat, lon = self._parse_gps_position(raw["GPSPosition"])
 
@@ -380,7 +411,6 @@ class ExifToolExtractor:
             lat_f = float(lat)
             lon_f = float(lon)
 
-            # Koreksi tanda berdasarkan GPSLatitudeRef / GPSLongitudeRef
             lat_ref = raw.get("GPSLatitudeRef", "N")
             lon_ref = raw.get("GPSLongitudeRef", "E")
             if isinstance(lat_ref, str) and lat_ref.upper() == "S":
@@ -388,23 +418,21 @@ class ExifToolExtractor:
             if isinstance(lon_ref, str) and lon_ref.upper() == "W":
                 lon_f = -abs(lon_f)
 
+            if not (-90 <= lat_f <= 90 and -180 <= lon_f <= 180) or (lat_f == 0 and lon_f == 0):
+                return   # koordinat kosong / tidak masuk akal
+
             self.results["gps_coords"] = (round(lat_f, 7), round(lon_f, 7))
             self.results["maps_link"]  = (
                 f"https://www.google.com/maps?q={lat_f:.7f},{lon_f:.7f}"
             )
-
-            # Inject ke filtered juga agar masuk laporan
             self.results["filtered"]["GPS_MapsLink"] = self.results["maps_link"]
 
         except (ValueError, TypeError):
             pass
 
-    def _parse_gps_position(self, gps_str: str) -> tuple[Optional[float], Optional[float]]:
-        """
-        Parse string GPS Position seperti '6.123456, 106.654321' atau
-        '6 deg 7\' 24.44" N, 106 deg 39\' 15.56" E' ke tuple float.
-        """
-        # Format 1: desimal langsung "lat, lon"
+    def _parse_gps_position(
+        self, gps_str: str
+    ) -> tuple:
         m = re.match(
             r"^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$",
             gps_str.strip()
@@ -412,7 +440,6 @@ class ExifToolExtractor:
         if m:
             return float(m.group(1)), float(m.group(2))
 
-        # Format 2: DMS dengan arah — "6 deg 7' 24.44" N, 106 deg 39' 15.56" E"
         dms_pattern = re.compile(
             r"(\d+)\s*deg\s+(\d+)'\s*([\d.]+)\"\s*([NSEW])"
         )
@@ -430,7 +457,6 @@ class ExifToolExtractor:
         return None, None
 
     def _cleanup(self) -> None:
-        """Hapus file temporary jika ada."""
         if self._tmp_file and self._tmp_file.exists():
             try:
                 self._tmp_file.unlink()
@@ -438,79 +464,28 @@ class ExifToolExtractor:
                 pass
 
 
-# ══════════════════════════════════════════════════════════════
-#  PATCH: ARGPARSE — tambahkan ke fungsi build_parser()
-# ══════════════════════════════════════════════════════════════
-#
-# Di dalam fungsi build_parser(), tambahkan baris ini sebelum `return p`:
-#
-#   p.add_argument(
-#       "-x", "--exif",
-#       dest="exif_target",
-#       metavar="FILE_OR_URL",
-#       help="ExifTool metadata extractor (file lokal atau URL remote)"
-#   )
-#
-# ══════════════════════════════════════════════════════════════
+def main() -> None:
+    import sys
 
-
-# ══════════════════════════════════════════════════════════════
-#  PATCH: FreeaseEngine.run() — tambahkan blok ini
-# ══════════════════════════════════════════════════════════════
-#
-# Di dalam method async def run(self) pada class FreeaseEngine,
-# tambahkan blok berikut (sebelum atau sesudah blok modul lain):
-#
-#   if self.args.exif_target:
-#       console.rule("[bold cyan]MODULE 7 · ExifTool Metadata Extractor[/bold cyan]", style="dim cyan")
-#       extractor = ExifToolExtractor(self.args.exif_target)
-#       exif_result = extractor.run()
-#       extractor.print_results(console)
-#       self.all_results["exif_metadata"] = exif_result
-#
-# ══════════════════════════════════════════════════════════════
-
-
-# ══════════════════════════════════════════════════════════════
-#  PATCH: Update deskripsi modul di _BANNER_ART / build_parser epilog
-# ══════════════════════════════════════════════════════════════
-#
-# Di epilog build_parser(), tambahkan baris:
-#   -x   ExifTool Metadata Extractor (file lokal / URL)
-#
-# Di modul docstring atas file, tambahkan:
-#   7. ExifToolExtractor — File/URL metadata (EXIF, GPS → Maps, IPTC, XMP)
-#
-# ══════════════════════════════════════════════════════════════
-
-
-# ══════════════════════════════════════════════════════════════
-#  STANDALONE TEST — hapus/comment-out sebelum integrasi
-# ══════════════════════════════════════════════════════════════
-
-if __name__ == "__main__":
     from rich.console import Console
-    from rich.table   import Table
-    from rich         import box
+
+    from freease_version import __version__
 
     console = Console()
-
-    import sys
-    if len(sys.argv) < 2:
-        console.print("[yellow]Usage: python freease_exiftool_module.py <file_or_url>[/yellow]")
-        console.print("[dim]Contoh:[/dim]")
-        console.print("  python freease_exiftool_module.py /path/to/photo.jpg")
-        console.print("  python freease_exiftool_module.py https://example.com/document.pdf")
+    args = [a for a in sys.argv[1:] if a != "--raw"]
+    if not args:
+        console.print("[yellow]Usage: python freease_exiftool_module.py <file_or_url> [--raw][/yellow]")
         sys.exit(0)
 
-    target = sys.argv[1]
-    console.print(f"\n[bold cyan]freease v2.0.0[/bold cyan] [dim]— ExifTool Metadata Extractor test[/dim]\n")
-
-    extractor = ExifToolExtractor(target)
-    result    = extractor.run()
+    console.print(f"\n[bold cyan]freease v{__version__}[/bold cyan] "
+                  "[dim]— ExifTool Metadata Extractor[/dim]\n")
+    extractor = ExifToolExtractor(args[0])
+    result = extractor.run()
     extractor.print_results(console)
-
-    # Tampilkan juga raw JSON untuk debug
     if "--raw" in sys.argv:
-        console.print("\n[dim]── RAW RESULT DICT ──[/dim]")
         console.print_json(json.dumps(result, default=str, indent=2))
+    sys.exit(1 if result.get("error") else 0)
+
+
+if __name__ == "__main__":
+    main()

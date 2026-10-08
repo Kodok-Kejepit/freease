@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-freease — Modul 10: YouTube Downloader
+freease — Modul 10: Media Downloader
 by: Kodok-Kejepit
 
-Download video / musik dari link YouTube biasa maupun YouTube Music.
-  - Mode   : video (mp4/mkv) atau audio (mp3/m4a/opus/flac/wav)
+Download video / musik / foto dari YouTube, YouTube Music, Pinterest, dan
+situs lain yang didukung yt-dlp (TikTok, Instagram, X, SoundCloud, Facebook,
+Vimeo, Twitch, dan ratusan lainnya).
+  - Mode    : video (mp4/mkv) atau audio (mp3/m4a/opus/flac/wav)
   - Kualitas: 4K (2160p), 2K (1440p), Full HD (1080p), HD (720p), 480p … 144p
-  - Engine : yt-dlp + ffmpeg (merge video+audio, konversi audio)
+  - Pinterest: pin video, pin foto (resolusi asli), dan seluruh isi board
+  - Engine  : yt-dlp + ffmpeg (merge video+audio, konversi audio)
 
 Bisa dipakai lewat freease.py (-y URL) atau langsung:
-  python freease_youtube.py URL [--mode video|audio] [--quality 1080]
+  python freease_youtube.py URL [--yt-mode video|audio] [--yt-quality 1080]
 
 Gunakan hanya untuk konten milik sendiri atau yang memang boleh diunduh.
 """
@@ -63,8 +66,62 @@ _YT_URL_RE = re.compile(
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
+_PINTEREST_RE = re.compile(
+    r"^https?://((?:[^/]+\.)?pinterest\.[a-z.]+|pin\.it)/", re.IGNORECASE)
+_URL_RE = re.compile(r"^https?://[^\s/$.?#][^\s]*$", re.IGNORECASE)
+_SAFE_NAME_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
+
+# Situs yang isinya memang audio → default mode musik
+_AUDIO_SITES = ("music.youtube.com", "soundcloud.com", "bandcamp.com", "audiomack.com", "mixcloud.com")
+
+
 def is_youtube_url(url: str) -> bool:
     return bool(_YT_URL_RE.match(url.strip()))
+
+
+def is_pinterest_url(url: str) -> bool:
+    return bool(_PINTEREST_RE.match(url.strip()))
+
+
+def detect_platform(url: str) -> Optional[str]:
+    """
+    Nama extractor yt-dlp yang cocok untuk URL ini, misalnya 'Youtube',
+    'Pinterest', 'TikTok'. 'generic' kalau hanya extractor umum yang cocok,
+    None kalau bukan URL http(s).
+    """
+    url = url.strip()
+    if not _URL_RE.match(url):
+        return None
+    try:
+        from yt_dlp.extractor import gen_extractor_classes
+    except ImportError:
+        return "generic"
+    for ie in gen_extractor_classes():
+        if ie.ie_key() == "Generic":
+            continue
+        try:
+            if ie.suitable(url) and ie.working():
+                return ie.ie_key()
+        except Exception:
+            continue
+    return "generic"
+
+
+def resolve_short_url(url: str, timeout: float = 15) -> str:
+    """Ikuti redirect link pendek (pin.it, dll) supaya extractor yang tepat bisa dipakai."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.geturl()
+    except Exception:
+        return url
+
+
+def safe_filename(name: str, limit: int = 120) -> str:
+    name = _SAFE_NAME_RE.sub(" ", name or "").strip().strip(".")
+    name = re.sub(r"\s+", " ", name)
+    return (name[:limit].rstrip() or "file")
 
 
 def parse_quality(value) -> Optional[int]:
@@ -134,9 +191,10 @@ class _QuietLogger:
         pass
 
 
-class YouTubeDownloader:
+class MediaDownloader:
     """
-    Download video/audio YouTube & YouTube Music via yt-dlp.
+    Download video/audio dari YouTube, YouTube Music, Pinterest, dan situs lain
+    yang didukung yt-dlp.
 
     Alur: probe() → (opsional) choose_interactive() → download().
     run() menjalankan semuanya dan me-return dict hasil.
@@ -154,6 +212,9 @@ class YouTubeDownloader:
         playlist: bool = False,
         interactive: Optional[bool] = None,
         console: Optional[Console] = None,
+        cookies: Optional[str] = None,
+        cookies_from_browser: Optional[str] = None,
+        subtitles: Optional[str] = None,
     ):
         self.url           = url.strip()
         self.mode          = mode
@@ -163,6 +224,9 @@ class YouTubeDownloader:
         self.audio_bitrate = str(audio_bitrate)
         self.container     = container
         self.playlist      = playlist
+        self.cookies       = str(Path(cookies).expanduser()) if cookies else None
+        self.cookies_from_browser = cookies_from_browser
+        self.subtitles     = subtitles
         self.interactive   = sys.stdin.isatty() if interactive is None else interactive
         self.console       = console or Console()
         self.has_ffmpeg    = shutil.which("ffmpeg") is not None
@@ -171,9 +235,11 @@ class YouTubeDownloader:
         self.heights: list = []
         self._logger       = _QuietLogger()
         self.results: dict = {
-            "url": self.url, "title": None, "mode": None, "quality": None,
-            "files": [], "error": None,
+            "url": self.url, "platform": None, "title": None, "mode": None,
+            "quality": None, "files": [], "error": None,
         }
+        self.platform: Optional[str] = None
+        self._direct = False   # True = lewati jalur khusus Pinterest (dipakai sub-download)
 
     # ── Public API ────────────────────────────────────────────
 
@@ -182,12 +248,28 @@ class YouTubeDownloader:
             import yt_dlp  # noqa: F401
         except ImportError:
             return self._fail("yt-dlp belum terpasang. Install: pip install -U yt-dlp")
+        if self.cookies and not Path(self.cookies).is_file():
+            return self._fail(f"File cookies tidak ditemukan: {self.cookies}")
 
-        if not is_youtube_url(self.url):
-            return self._fail(
-                "Link bukan URL YouTube / YouTube Music yang valid "
-                "(contoh: https://youtu.be/ID atau https://music.youtube.com/watch?v=ID)"
-            )
+        if self.url.lower().startswith("https://pin.it/"):
+            self.url = resolve_short_url(self.url)
+        self.platform = detect_platform(self.url)
+        if self.platform is None:
+            return self._fail("Bukan link http(s) yang valid")
+        self.results["platform"] = self.platform
+        if self.platform == "generic":
+            self.console.print(
+                "  [yellow]\\[!] Situs ini tidak punya extractor khusus di yt-dlp; "
+                "dicoba dengan extractor umum (bisa gagal).[/yellow]")
+
+        if is_pinterest_url(self.url) and not self._direct:
+            try:
+                return self._run_pinterest()
+            except (KeyboardInterrupt, EOFError):
+                return self._fail("Dibatalkan pengguna")
+            except Exception as e:
+                return self._fail(self._clean_error(e))
+
         try:
             requested = parse_quality(self.quality)
         except ValueError as e:
@@ -195,13 +277,13 @@ class YouTubeDownloader:
 
         if not self.has_ffmpeg:
             self.console.print(
-                "  [yellow]⚠ ffmpeg tidak ditemukan — video dibatasi ke format gabungan "
+                "  [yellow]\\[!] ffmpeg tidak ditemukan — video dibatasi ke format gabungan "
                 "(biasanya ≤360p) dan audio tidak dikonversi. "
                 "Install: sudo apt install ffmpeg[/yellow]"
             )
 
         try:
-            with self.console.status("[cyan]Mengambil info dari YouTube…"):
+            with self.console.status(f"[cyan]Mengambil info dari {self.platform}…"):
                 self.probe()
         except Exception as e:
             return self._fail(self._clean_error(e))
@@ -306,18 +388,171 @@ class YouTubeDownloader:
                     if "id" in post_task:
                         prog.remove_task(post_task.pop("id"))
 
+            def on_final(path: str):
+                # Dipanggil yt-dlp dengan path akhir setiap item (setelah semua postprocessor)
+                if path:
+                    files.append(path)
+
             opts["progress_hooks"] = [on_progress]
             opts["postprocessor_hooks"] = [on_post]
+            opts["post_hooks"] = [on_final]
 
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.extract_info(self.url, download=True)
+            before = self._snapshot()
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.extract_info(self.url, download=True)
+            except BaseException:
+                self._cleanup_leftovers(before)
+                raise
 
-        self.results["files"] = [
-            {"path": f, "size": Path(f).stat().st_size} for f in files if Path(f).exists()
-        ]
+        unique: dict = {}
+        for f in files:
+            p = Path(f)
+            if p.exists():
+                unique.setdefault(str(p.resolve()), {"path": f, "size": p.stat().st_size})
+        self.results["files"] = list(unique.values())
         if not self.results["files"]:
             raise RuntimeError("Download selesai tanpa menghasilkan file")
         return files
+
+    _LEFTOVER_EXT = {".part", ".ytdl", ".webp", ".jpg", ".jpeg", ".png", ".vtt", ".srt", ".temp"}
+
+    def _snapshot(self) -> set:
+        try:
+            return {p for p in self.output_dir.rglob("*") if p.is_file()}
+        except OSError:
+            return set()
+
+    def _cleanup_leftovers(self, before: set) -> None:
+        """Download gagal/dibatalkan: hapus file sementara & thumbnail yang baru dibuat."""
+        for p in self._snapshot() - before:
+            name = p.name.lower()
+            if p.suffix.lower() in self._LEFTOVER_EXT or ".part-frag" in name or ".f" in p.stem[-6:]:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
+    # ── Pinterest ─────────────────────────────────────────────
+
+    def _run_pinterest(self) -> dict:
+        """
+        Pin video diunduh lewat yt-dlp seperti biasa. Pin foto tidak punya format
+        video di yt-dlp (unduhan biasa gagal "No video formats found"), padahal URL
+        gambarnya ada di metadata; jadi metadata diambil mentah (process=False)
+        lalu gambar resolusi terbesarnya diunduh langsung. Board diproses per pin.
+        """
+        import yt_dlp
+
+        with self.console.status("[cyan]Mengambil info dari Pinterest…"):
+            with yt_dlp.YoutubeDL(self._base_opts()) as ydl:
+                info = ydl.extract_info(self.url, download=False, process=False)
+        if not info:
+            raise RuntimeError("Tidak ada info yang bisa diambil dari link tersebut")
+        self.info = info
+        self.results["title"] = info.get("title")
+        self.results["mode"] = "pinterest"
+
+        is_board = info.get("_type") == "playlist"
+        pins = [p for p in (info.get("entries") or []) if isinstance(p, dict)] if is_board else [info]
+        videos = [p for p in pins if p.get("formats") or p.get("_type") in ("url", "url_transparent")]
+        images = [p for p in pins if p not in videos and self._best_image(p)]
+
+        t = Table(box=box.ROUNDED, style="dim", show_header=False)
+        t.add_column("k", style="bold yellow", width=14)
+        t.add_column("v", style="white", overflow="fold")
+        t.add_row("Judul", f"[bold]{escape(info.get('title') or '(tanpa judul)')}[/bold]")
+        t.add_row("Sumber", "Pinterest " + ("board" if is_board else "pin"))
+        if info.get("uploader"):
+            t.add_row("Pembuat", escape(info["uploader"]))
+        t.add_row("Isi", f"{len(videos)} video, {len(images)} foto")
+        self.console.print(t)
+
+        if not videos and not images:
+            raise RuntimeError("Pin ini tidak berisi video maupun gambar yang bisa diunduh")
+        if is_board and self.interactive and not self.playlist:
+            if not Confirm.ask(f"  Unduh semua {len(videos) + len(images)} pin di board ini?",
+                               default=True, console=self.console):
+                raise KeyboardInterrupt
+
+        target_dir = self.output_dir
+        if is_board:
+            target_dir = self.output_dir / safe_filename(info.get("title") or "pinterest-board", 80)
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        files: list = []
+        image_files: list = []
+        failed = 0
+        for i, pin in enumerate(images, 1):
+            label = f"Foto {i}/{len(images)}" if len(images) > 1 else "Foto"
+            try:
+                with self.console.status(f"[cyan]{label}: mengunduh…"):
+                    path = self._download_image(pin, target_dir)
+                entry = {"path": str(path), "size": path.stat().st_size}
+                files.append(entry)
+                image_files.append(entry)
+            except Exception as e:
+                failed += 1
+                self.console.print(f"  [yellow]\\[!] {label} gagal: {escape(self._clean_error(e))}[/yellow]")
+
+        for pin in videos:
+            url = (pin.get("url") if pin.get("_type") in ("url", "url_transparent")
+                   else pin.get("webpage_url") or f"https://www.pinterest.com/pin/{pin.get('id')}/")
+            sub = MediaDownloader(
+                url=url, mode=self.mode or "video", quality=self.quality or "best",
+                output_dir=str(target_dir), audio_format=self.audio_format,
+                audio_bitrate=self.audio_bitrate, container=self.container,
+                playlist=False, interactive=False, console=self.console,
+                cookies=self.cookies, cookies_from_browser=self.cookies_from_browser)
+            sub._direct = True
+            res = sub.run()
+            if res.get("error"):
+                failed += 1
+            files.extend(res.get("files") or [])
+
+        self.results["files"] = files
+        if not files:
+            raise RuntimeError("Tidak ada file yang berhasil diunduh")
+        # File video sudah dicetak oleh sub-download; cetak foto saja di sini
+        self._print_done(only=image_files)
+        if failed:
+            self.console.print(f"  [yellow]\\[!] {failed} pin gagal diunduh[/yellow]")
+        return self.results
+
+    @staticmethod
+    def _best_image(pin: dict) -> Optional[str]:
+        """URL gambar terbesar sebuah pin; versi '/originals/' selalu didahulukan."""
+        thumbs = [t for t in (pin.get("thumbnails") or []) if t.get("url")]
+        if not thumbs:
+            return pin.get("thumbnail")
+        for t in thumbs:
+            if "/originals/" in t["url"]:
+                return t["url"]
+        return max(thumbs, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))["url"]
+
+    def _download_image(self, pin: dict, folder: Path) -> Path:
+        import urllib.request
+        from urllib.parse import urlparse
+
+        url = self._best_image(pin)
+        ext = Path(urlparse(url).path).suffix.lower().lstrip(".")
+        if ext not in ("jpg", "jpeg", "png", "gif", "webp"):
+            ext = "jpg"
+        title = pin.get("title") or pin.get("description") or "pin"
+        path = folder / f"{safe_filename(title, 100)} [{pin.get('id', 'x')}].{ext}"
+        if path.exists() and path.stat().st_size > 0:
+            return path
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+            "Referer": "https://www.pinterest.com/",
+        })
+        tmp = path.with_suffix(path.suffix + ".part")
+        with urllib.request.urlopen(req, timeout=30) as resp, open(tmp, "wb") as fh:
+            while chunk := resp.read(65536):
+                fh.write(chunk)
+        tmp.replace(path)
+        return path
 
     # ── yt-dlp options ────────────────────────────────────────
 
@@ -334,6 +569,10 @@ class YouTubeDownloader:
             "concurrent_fragment_downloads": 8,
             "socket_timeout": 20,
         }
+        if self.cookies:
+            opts["cookiefile"] = self.cookies
+        if self.cookies_from_browser:
+            opts["cookiesfrombrowser"] = (self.cookies_from_browser,)
         # YouTube butuh JS runtime untuk membuka semua format; pakai yang tersedia.
         runtimes = {
             name: {"path": path}
@@ -351,7 +590,7 @@ class YouTubeDownloader:
             return {"format": "b", "format_sort": sort}
         if self.container == "mp4":
             sort.append("ext:mp4:m4a")
-        return {
+        opts = {
             "format": "bv*+ba/b",
             "format_sort": sort,
             "merge_output_format": self.container,
@@ -360,6 +599,15 @@ class YouTubeDownloader:
                 {"key": "FFmpegMetadata"},
             ],
         }
+        if self.subtitles:
+            langs = [x.strip() for x in self.subtitles.split(",") if x.strip()]
+            opts.update({
+                "writesubtitles": True,
+                "writeautomaticsub": True,   # pakai subtitle otomatis kalau tidak ada yang manual
+                "subtitleslangs": langs or ["id", "en"],
+            })
+            opts["postprocessors"].append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False})
+        return opts
 
     def _audio_opts(self) -> dict:
         fmt = self.audio_format
@@ -394,17 +642,17 @@ class YouTubeDownloader:
         if mode is None:
             if self.interactive:
                 # Link YouTube Music → default ke audio
-                default = "2" if "music.youtube.com" in self.url.lower() else "1"
+                default = "2" if any(d in self.url.lower() for d in _AUDIO_SITES) else "1"
                 self.console.print(
                     "  [bold]Mau download apa?[/bold]\n"
-                    "    [cyan]1[/cyan]  🎬 Video\n"
-                    "    [cyan]2[/cyan]  🎵 Musik (audio saja)"
+                    "    [cyan]1[/cyan]  Video\n"
+                    "    [cyan]2[/cyan]  Musik (audio saja)"
                 )
                 pick = Prompt.ask("  Pilih", choices=["1", "2"], default=default,
                                   console=self.console)
                 mode = "video" if pick == "1" else "audio"
             else:
-                mode = "audio" if "music.youtube.com" in self.url.lower() else "video"
+                mode = "audio" if any(d in self.url.lower() for d in _AUDIO_SITES) else "video"
 
         if self.is_playlist and self.interactive and not self.playlist:
             count = len(self.info.get("entries") or [])
@@ -433,7 +681,7 @@ class YouTubeDownloader:
                 lower = [h for h in self.heights if h <= height]
                 actual = max(lower) if lower else min(self.heights)
                 self.console.print(
-                    f"  [yellow]⚠ {height}p tidak tersedia untuk video ini — "
+                    f"  [yellow]\\[!] {height}p tidak tersedia untuk video ini — "
                     f"pakai {quality_label(actual)}[/yellow]"
                 )
                 height = actual
@@ -506,6 +754,7 @@ class YouTubeDownloader:
         t.add_column("k", style="bold yellow", width=14)
         t.add_column("v", style="white", overflow="fold")
         t.add_row("Judul", f"[bold]{escape(i.get('title') or '?')}[/bold]")
+        t.add_row("Sumber", escape(i.get("extractor_key") or self.platform or "?"))
         if self.is_playlist:
             t.add_row("Tipe", "Playlist / Album")
             t.add_row("Jumlah item", str(len(i.get("entries") or [])))
@@ -520,19 +769,19 @@ class YouTubeDownloader:
                 t.add_row("Resolusi", ", ".join(f"{h}p" for h in reversed(self.heights)))
         self.console.print(t)
 
-    def _print_done(self) -> None:
+    def _print_done(self, only: Optional[list] = None) -> None:
         for w in self._logger.warnings[:3]:
-            self.console.print(f"  [dim yellow]⚠ {escape(w[:200])}[/dim yellow]")
-        for f in self.results["files"]:
+            self.console.print(f"  [dim yellow]\\[!] {escape(w[:200])}[/dim yellow]")
+        for f in (self.results["files"] if only is None else only):
             self.console.print(
-                f"  [bold green]✓ Tersimpan:[/bold green] [cyan]{escape(f['path'])}[/cyan]"
+                f"  [bold green]\\[+] Tersimpan:[/bold green] [cyan]{escape(f['path'])}[/cyan]"
                 f"  [dim]({_fmt_size(f['size'])})[/dim]",
                 highlight=False,
             )
 
     def _fail(self, msg: str) -> dict:
         self.results["error"] = msg
-        self.console.print(f"  [bold red]✗ YouTube:[/bold red] [red]{escape(msg)}[/red]")
+        self.console.print(f"  [bold red]\\[x] Download:[/bold red] [red]{escape(msg)}[/red]")
         return self.results
 
     @staticmethod
@@ -542,12 +791,17 @@ class YouTubeDownloader:
         return msg[:400] or e.__class__.__name__
 
 
+# Nama lama tetap bisa dipakai
+YouTubeDownloader = MediaDownloader
+
+
 # ── Argumen CLI (dipakai juga oleh freease.py) ────────────────
 
 def add_youtube_args(p) -> None:
-    g = p.add_argument_group("YouTube Downloader")
-    g.add_argument("-y", "--youtube", metavar="URL",
-                   help="Link YouTube / YouTube Music yang mau di-download")
+    g = p.add_argument_group("Media Downloader")
+    g.add_argument("-y", "-D", "--youtube", "--download", dest="youtube", metavar="URL",
+                   help="Link YouTube, YouTube Music, Pinterest (foto/video/board), "
+                        "TikTok, Instagram, X, SoundCloud, dan situs lain yang didukung yt-dlp")
     g.add_argument("--yt-mode", choices=["video", "audio", "musik", "music"], default=None,
                    help="video atau audio/musik (default: ditanya interaktif)")
     g.add_argument("--yt-quality", metavar="Q", default=None,
@@ -560,16 +814,23 @@ def add_youtube_args(p) -> None:
     g.add_argument("--yt-container", choices=CONTAINERS, default="mp4",
                    help="Container video (default: mp4)")
     g.add_argument("--yt-playlist", action="store_true",
-                   help="Download seluruh playlist/album, bukan cuma satu video")
+                   help="Download seluruh playlist/album/board tanpa ditanya")
     g.add_argument("--yt-dir", default="./freease_downloads",
                    help="Folder hasil download (default: ./freease_downloads)")
+    g.add_argument("--yt-cookies", metavar="FILE", default=None,
+                   help="File cookies.txt (format Netscape) untuk konten yang butuh login / "
+                        "dibatasi umur")
+    g.add_argument("--yt-browser-cookies", metavar="BROWSER", default=None,
+                   help="Ambil cookies langsung dari browser: chrome, firefox, edge, brave, …")
+    g.add_argument("--yt-subs", metavar="LANG", default=None,
+                   help="Sematkan subtitle ke video, mis. id atau id,en (butuh ffmpeg)")
 
 
-def downloader_from_args(args, console: Optional[Console] = None) -> YouTubeDownloader:
+def downloader_from_args(args, console: Optional[Console] = None) -> "MediaDownloader":
     mode = args.yt_mode
     if mode in ("musik", "music"):
         mode = "audio"
-    return YouTubeDownloader(
+    return MediaDownloader(
         url=args.youtube,
         mode=mode,
         quality=args.yt_quality,
@@ -579,20 +840,23 @@ def downloader_from_args(args, console: Optional[Console] = None) -> YouTubeDown
         container=args.yt_container,
         playlist=args.yt_playlist,
         console=console,
+        cookies=getattr(args, "yt_cookies", None),
+        cookies_from_browser=getattr(args, "yt_browser_cookies", None),
+        subtitles=getattr(args, "yt_subs", None),
     )
 
 
 def main() -> None:
     p = argparse.ArgumentParser(
         prog="freease_youtube",
-        description="freease — YouTube / YouTube Music downloader",
+        description="freease — media downloader (YouTube, Pinterest, dan situs lain yt-dlp)",
     )
-    p.add_argument("url", nargs="?", help="Link YouTube / YouTube Music")
+    p.add_argument("url", nargs="?", help="Link yang mau di-download")
     add_youtube_args(p)
     args = p.parse_args()
     args.youtube = args.youtube or args.url
     if not args.youtube:
-        p.error("masukkan link YouTube")
+        p.error("masukkan link yang mau di-download")
     res = downloader_from_args(args).run()
     sys.exit(1 if res.get("error") else 0)
 
