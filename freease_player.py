@@ -45,6 +45,8 @@ from rich.markup import escape
 from rich.table import Table
 from rich.panel import Panel
 
+from freease_ui import paginate
+
 
 # ──────────────────────────────────────────────────────────────
 #  Ekstensi yang dikenali (hanya untuk klasifikasi & auto-playlist;
@@ -816,19 +818,28 @@ class MediaPlayer:
             return 130
 
     # ── Tampilan ───────────────────────────────────────────────
+    QUEUE_PAGE = 15
+
     def _print_queue(self) -> None:
-        t = Table(box=box.SIMPLE_HEAVY, title="[bold]Antrian Pemutaran[/bold]",
-                  title_justify="left", header_style="bold cyan")
-        t.add_column("#", justify="right", style="dim", width=3)
-        t.add_column("Media", overflow="fold")
-        t.add_column("Jenis", width=7)
-        t.add_column("Ukuran", justify="right", width=9)
-        for i, tr in enumerate(self.queue, 1):
-            kind = {"audio": "[green]audio[/green]", "video": "[magenta]video[/magenta]",
-                    "url": "[cyan]url[/cyan]"}.get(tr.kind, "[dim]media[/dim]")
-            size = "—" if tr.is_url else _fmt_size(Path(tr.src))
-            t.add_row(str(i), escape(tr.name), kind, size)
-        self.console.print(t)
+        def render(start: int, end: int, page: int, pages: int) -> Table:
+            title = "[bold]Antrian Pemutaran[/bold]"
+            if pages > 1:
+                title += f"  [dim]({len(self.queue)} item · halaman {page + 1}/{pages})[/dim]"
+            t = Table(box=box.SIMPLE_HEAVY, title=title,
+                      title_justify="left", header_style="bold cyan")
+            t.add_column("#", justify="right", style="dim", width=max(3, len(str(end))))
+            t.add_column("Media", overflow="fold")
+            t.add_column("Jenis", width=7)
+            t.add_column("Ukuran", justify="right", width=9)
+            for i, tr in enumerate(self.queue[start:end], start + 1):
+                kind = {"audio": "[green]audio[/green]", "video": "[magenta]video[/magenta]",
+                        "url": "[cyan]url[/cyan]"}.get(tr.kind, "[dim]media[/dim]")
+                size = "—" if tr.is_url else _fmt_size(Path(tr.src))
+                t.add_row(str(i), escape(tr.name), kind, size)
+            return t
+
+        paginate(self.console, len(self.queue), render, page_size=self.QUEUE_PAGE,
+                 label="track", done_label="selesai" if self.list_only else "mulai putar")
 
     def _print_controls(self) -> None:
         self.console.print(

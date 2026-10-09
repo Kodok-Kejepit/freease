@@ -72,6 +72,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
+from freease_ui import paginate
 from freease_version import __version__
 
 BROWSER_UA = (
@@ -997,6 +998,34 @@ def render_result(res: dict, console: Console) -> None:
     console.print()
 
 
+def render_summary(results: list[dict], console: Console) -> None:
+    """Ringkasan banyak URL, paling berisiko di atas. Berhalaman kalau panjang."""
+    ordered = sorted(results, key=lambda r: -r["score"])
+    counts = {v: sum(1 for r in results if r["verdict"] == v)
+              for v in ("BERBAHAYA", "MENCURIGAKAN", "AMAN")}
+
+    def _render(start: int, end: int, page: int, pages: int) -> Table:
+        pg = f" · halaman {page + 1}/{pages}" if pages > 1 else ""
+        t = Table(box=box.ROUNDED, header_style="bold cyan", title_justify="left",
+                  title=(f"[bold]Ringkasan {len(results)} URL[/bold]  [dim]"
+                         f"{counts['BERBAHAYA']} berbahaya · {counts['MENCURIGAKAN']} "
+                         f"mencurigakan · {counts['AMAN']} aman{pg}[/dim]"))
+        t.add_column("#", justify="right", style="dim")
+        t.add_column("Skor", justify="right", width=4)
+        t.add_column("Verdict", width=12)
+        t.add_column("URL", overflow="fold")
+        t.add_column("Temuan utama", overflow="fold", style="dim")
+        for i, r in enumerate(ordered[start:end], start + 1):
+            top = sorted(r["findings"], key=lambda f: -f["score"])[:1]
+            t.add_row(str(i), str(r["score"]),
+                      f"[{r['verdict_color']}]{r['verdict']}[/{r['verdict_color']}]",
+                      escape(r["url"][:120]), escape(top[0]["detail"][:80]) if top else "—")
+        return t
+
+    console.print()
+    paginate(console, len(ordered), _render, page_size=15, label="URL")
+
+
 def _write_reports(results: list[dict], out_dir: str, console: Console) -> None:
     try:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -1133,6 +1162,9 @@ def run_scan_from_args(args, console: Optional[Console] = None) -> dict:
         render_result(res, console)
         results.append(res)
         worst = max(worst, res["score"])
+
+    if len(results) > 1:
+        render_summary(results, console)
 
     out_dir = getattr(args, "output", None)
     if out_dir and not getattr(args, "no_export", False):

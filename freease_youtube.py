@@ -34,6 +34,8 @@ from rich.progress import (
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from freease_ui import paginate
+
 # Resolusi standar (sisi pendek frame) → label
 QUALITY_LABELS = {
     4320: "8K",
@@ -70,6 +72,31 @@ _PINTEREST_RE = re.compile(
     r"^https?://((?:[^/]+\.)?pinterest\.[a-z.]+|pin\.it)/", re.IGNORECASE)
 _URL_RE = re.compile(r"^https?://[^\s/$.?#][^\s]*$", re.IGNORECASE)
 _SAFE_NAME_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
+_ITEMS_RE = re.compile(r"^\s*\d+(\s*-\s*\d+)?(\s*,\s*\d+(\s*-\s*\d+)?)*\s*$")
+
+
+def normalize_items(spec: Optional[str], count: Optional[int] = None) -> Optional[str]:
+    """
+    '1-5, 8' → '1-5,8' (format playlist_items yt-dlp). 'a'/'all'/'semua'/kosong → None
+    (= semua). Raise ValueError kalau formatnya salah atau nomornya di luar playlist.
+    """
+    if spec is None:
+        return None
+    spec = spec.strip().lower()
+    if spec in ("", "a", "all", "semua"):
+        return None
+    if not _ITEMS_RE.match(spec):
+        raise ValueError(f"Pilihan item '{spec}' tidak valid. Contoh: 1-5,8 atau a (semua)")
+    parts = []
+    for part in spec.replace(" ", "").split(","):
+        lo, _, hi = part.partition("-")
+        lo_i, hi_i = int(lo), int(hi or lo)
+        if lo_i < 1 or hi_i < lo_i:
+            raise ValueError(f"Rentang '{part}' tidak valid")
+        if count and lo_i > count:
+            raise ValueError(f"Item {lo_i} di luar playlist (isi {count} item)")
+        parts.append(part)
+    return ",".join(parts)
 
 # Situs yang isinya memang audio → default mode musik
 _AUDIO_SITES = ("music.youtube.com", "soundcloud.com", "bandcamp.com", "audiomack.com", "mixcloud.com")
@@ -215,6 +242,7 @@ class MediaDownloader:
         cookies: Optional[str] = None,
         cookies_from_browser: Optional[str] = None,
         subtitles: Optional[str] = None,
+        items: Optional[str] = None,
     ):
         self.url           = url.strip()
         self.mode          = mode
@@ -227,6 +255,7 @@ class MediaDownloader:
         self.cookies       = str(Path(cookies).expanduser()) if cookies else None
         self.cookies_from_browser = cookies_from_browser
         self.subtitles     = subtitles
+        self.items         = items           # mis. "1-5,8" — hanya item playlist tertentu
         self.interactive   = sys.stdin.isatty() if interactive is None else interactive
         self.console       = console or Console()
         self.has_ffmpeg    = shutil.which("ffmpeg") is not None
@@ -336,6 +365,8 @@ class MediaDownloader:
         opts = self._base_opts()
         opts.update(self._audio_opts() if mode == "audio" else self._video_opts(height))
 
+        if self.items:
+            opts["playlist_items"] = self.items
         name = "%(title).150B [%(id)s].%(ext)s"
         if self.is_playlist:
             name = "%(playlist_title).100B/%(playlist_index)03d - " + name
@@ -654,14 +685,15 @@ class MediaDownloader:
             else:
                 mode = "audio" if any(d in self.url.lower() for d in _AUDIO_SITES) else "video"
 
-        if self.is_playlist and self.interactive and not self.playlist:
-            count = len(self.info.get("entries") or [])
-            if not Confirm.ask(
-                f"  Link ini playlist berisi [bold]{count}[/bold] item. Download semuanya?",
-                default=True, console=self.console,
-            ):
-                raise KeyboardInterrupt
         if self.is_playlist:
+            entries = [e for e in (self.info.get("entries") or []) if isinstance(e, dict)]
+            try:
+                self.items = normalize_items(self.items, len(entries) or None)
+            except ValueError as e:
+                self.console.print(f"  [yellow]\\[!] {escape(str(e))} — dipakai semua item.[/yellow]")
+                self.items = None
+            if self.interactive and not self.playlist and not self.items:
+                self.items = self._ask_items(entries)
             self.playlist = True
 
         if mode == "audio":
@@ -713,6 +745,34 @@ class MediaDownloader:
             show_choices=False, console=self.console,
         )
         return mode, options[int(pick) - 1]
+
+    def _ask_items(self, entries: list) -> Optional[str]:
+        """Tampilkan isi playlist berhalaman (↓/↑), lalu tanya item mana yang diunduh."""
+        def render(start: int, end: int, page: int, pages: int) -> Table:
+            pg = f" · halaman {page + 1}/{pages}" if pages > 1 else ""
+            t = Table(box=box.SIMPLE_HEAVY, header_style="bold cyan", title_justify="left",
+                      title=f"[bold]Isi playlist[/bold]  [dim]({len(entries)} item{pg})[/dim]")
+            t.add_column("#", justify="right", style="bold cyan", width=max(3, len(str(end))))
+            t.add_column("Judul", overflow="fold")
+            t.add_column("Durasi", justify="right", width=8)
+            for i, e in enumerate(entries[start:end], start + 1):
+                t.add_row(str(i), escape(e.get("title") or "(tanpa judul)"),
+                          _fmt_duration(e.get("duration")))
+            return t
+
+        if entries:
+            paginate(self.console, len(entries), render, page_size=15, label="item",
+                     done_label="pilih")
+        while True:
+            ans = Prompt.ask(
+                "  Unduh item mana? [dim](a = semua, mis. 1-5,8, b = batal)[/dim]",
+                default="a", console=self.console)
+            if ans.strip().lower() in ("b", "batal"):
+                raise KeyboardInterrupt
+            try:
+                return normalize_items(ans, len(entries) or None)
+            except ValueError as e:
+                self.console.print(f"  [yellow]\\[!] {escape(str(e))}[/yellow]")
 
     @staticmethod
     def _res(f: dict) -> Optional[int]:
@@ -815,6 +875,8 @@ def add_youtube_args(p) -> None:
                    help="Container video (default: mp4)")
     g.add_argument("--yt-playlist", action="store_true",
                    help="Download seluruh playlist/album/board tanpa ditanya")
+    g.add_argument("--yt-items", metavar="SEL", default=None,
+                   help="Hanya item playlist tertentu, mis. 1-5,8 (berlaku juga tanpa --yt-playlist)")
     g.add_argument("--yt-dir", default="./freease_downloads",
                    help="Folder hasil download (default: ./freease_downloads)")
     g.add_argument("--yt-cookies", metavar="FILE", default=None,
@@ -843,6 +905,7 @@ def downloader_from_args(args, console: Optional[Console] = None) -> "MediaDownl
         cookies=getattr(args, "yt_cookies", None),
         cookies_from_browser=getattr(args, "yt_browser_cookies", None),
         subtitles=getattr(args, "yt_subs", None),
+        items=getattr(args, "yt_items", None),
     )
 
 

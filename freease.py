@@ -57,6 +57,7 @@ from freease_player import add_player_args, player_from_args
 from freease_scan import add_scan_args, run_scan_from_args
 from freease_search import add_search_args, search_from_args
 from freease_exiftool_module import ExifToolExtractor
+from freease_ui import disable_paging, is_interactive, paginate
 
 from freease_version import __version__ as VERSION
 USER_AGENT = f"freease-ASM-Tool/{VERSION} (Defensive Security Audit)"
@@ -3299,10 +3300,26 @@ class FreeaseEngine:
                    f"(hijau = hidup)[/dim]" if checked else "")
             )
             ordered = sorted(subs, key=lambda x: (x not in live, x))
-            console.print("  ".join(
-                f"[{'green' if x in live else 'blue'}]{escape(x)}[/]" for x in ordered[:30]))
-            if len(subs) > 30:
-                console.print(f"  [dim]… +{len(subs)-30} lainnya (lengkap di laporan JSON)[/dim]")
+            if is_interactive():
+                # Tabel berhalaman: ↓/↑ untuk melihat semua subdomain beserta IP-nya
+                def _render(start, end, page, pages):
+                    t = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan",
+                              title=(f"[dim]halaman {page + 1}/{pages}[/dim]" if pages > 1
+                                     else None), title_justify="left")
+                    t.add_column("#", justify="right", style="dim")
+                    t.add_column("Subdomain", overflow="fold")
+                    t.add_column("IP", style="green", overflow="fold")
+                    for i, x in enumerate(ordered[start:end], start + 1):
+                        ips = live.get(x)
+                        t.add_row(str(i), f"[{'green' if ips else 'blue'}]{escape(x)}[/]",
+                                  escape(", ".join(ips[:3])) if ips else "[dim]—[/dim]")
+                    return t
+                paginate(console, len(ordered), _render, page_size=20, label="subdomain")
+            else:
+                console.print("  ".join(
+                    f"[{'green' if x in live else 'blue'}]{escape(x)}[/]" for x in ordered[:30]))
+                if len(subs) > 30:
+                    console.print(f"  [dim]… +{len(subs)-30} lainnya (lengkap di laporan JSON)[/dim]")
 
         tech = r.get("web_tech", {})
         if tech and tech.get("status_code") is None:
@@ -3380,22 +3397,31 @@ class FreeaseEngine:
                 f"port yang dipindai[/green]  [dim]({elapsed}s)[/dim]"
             )
             return
-        t = Table(
-            title=f"Open Ports — {r.get('host','?')}  [dim]({r.get('ports_scanned', 0)} port, {elapsed}s)[/dim]",
-            box=box.ROUNDED, style="dim"
-        )
-        t.add_column("Port",    style="bold cyan",  no_wrap=True)
-        t.add_column("Service", style="bold",        no_wrap=True)
-        t.add_column("Banner",  style="dim green",   overflow="fold")
-        t.add_column("Warning", style="bold red")
-        for p in open_ports:
-            t.add_row(
-                str(p["port"]),
-                p.get("service", "?"),
-                escape((p.get("banner") or "")[:50]),
-                p.get("warning", "") or "",
+        def _render(start, end, page, pages):
+            pg = f" · halaman {page + 1}/{pages}" if pages > 1 else ""
+            t = Table(
+                title=f"Open Ports — {r.get('host','?')}  "
+                      f"[dim]({len(open_ports)} terbuka dari {r.get('ports_scanned', 0)} port, "
+                      f"{elapsed}s{pg})[/dim]",
+                box=box.ROUNDED, style="dim"
             )
-        console.print(t)
+            t.add_column("Port",    style="bold cyan",  no_wrap=True)
+            t.add_column("Service", style="bold",        no_wrap=True)
+            t.add_column("Banner",  style="dim green",   overflow="fold")
+            t.add_column("Warning", style="bold red")
+            for p in open_ports[start:end]:
+                t.add_row(
+                    str(p["port"]),
+                    p.get("service", "?"),
+                    escape((p.get("banner") or "")[:50]),
+                    p.get("warning", "") or "",
+                )
+            return t
+        # Kritis & sensitif di atas supaya langsung terlihat di halaman pertama
+        open_ports = sorted(open_ports, key=lambda p: (
+            p["port"] not in PortScanner.CRITICAL_PORTS,
+            p["port"] not in PortScanner.SENSITIVE_PORTS, p["port"]))
+        paginate(console, len(open_ports), _render, page_size=20, label="port")
 
     def _print_waf(self, r: dict):
         if r.get("waf_detected"):
@@ -3502,7 +3528,9 @@ class FreeaseEngine:
         t.add_column("Platform", style="bold")
         t.add_column("Status",   justify="center")
         t.add_column("URL / Catatan")
-        for plat, d in results.items():
+        order = {"FOUND": 0, "UNKNOWN": 1, "TIMEOUT": 2, "ERROR": 3, "NOT_FOUND": 4}
+        for plat, d in sorted(results.items(),
+                              key=lambda kv: order.get(kv[1].get("status"), 9)):
             st = d.get("status", "UNKNOWN")
             sc = {
                 "FOUND":     "[bold green]FOUND[/bold green]",
@@ -3702,6 +3730,9 @@ API Keys (semua gratis):
                                           help="Direktori output JSON & HTML (default: ./freease_output)")
     p.add_argument("--no-export",         action="store_true",
                                           help="Jangan export file laporan")
+    p.add_argument("--no-pager",          action="store_true",
+                                          help="Tampilkan semua daftar sekaligus tanpa halaman / "
+                                               "tombol panah (atau env FREEASE_NO_PAGER=1)")
     add_youtube_args(p)
     add_player_args(p)
     add_search_args(p)
@@ -3720,6 +3751,9 @@ _USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 def main():
     parser = build_parser()
     args   = parser.parse_args()
+
+    if args.no_pager:
+        disable_paging()
 
     scan_requested = any([args.domain, args.username, args.emails, args.ips, args.exif_target])
     url_scan_requested = bool(args.scan or args.scan_list)

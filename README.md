@@ -28,6 +28,7 @@ lain), serta pemutar audio/video. Semuanya dijalankan dari satu perintah,
 
 - [Instalasi](#instalasi)
 - [Pemakaian singkat](#pemakaian-singkat)
+- [Navigasi halaman (tombol panah)](#navigasi-halaman-tombol-panah)
 - [Modul recon](#modul-recon)
 - [URL Safety Scanner](#url-safety-scanner)
 - [Pencarian](#pencarian)
@@ -93,6 +94,37 @@ Beberapa modul bisa digabung dalam satu perintah:
 python freease.py -d example.com -u johndoe -e admin@example.com \
   --hibp-key KEY_HIBP -i 1.2.3.4 -o ./laporan
 ```
+
+
+## Navigasi halaman (tombol panah)
+
+Semua daftar panjang di freease ditampilkan per halaman, dan tombolnya sama
+di mana pun:
+
+| Tombol                    | Fungsi                                          |
+|---------------------------|-------------------------------------------------|
+| `↓` `→` `PgDn` (atau `n`) | halaman berikutnya, mis. hasil 11–20, 21–30, …  |
+| `↑` `←` `PgUp` (atau `p`) | halaman sebelumnya                              |
+| `Home` / `End`            | halaman pertama / terakhir yang sudah dimuat    |
+| `Enter`                   | selesai melihat / lanjut                        |
+
+Halaman berganti di tempat, jadi tabel lama tidak menumpuk di layar. Di
+hasil pencarian, nomor terus berlanjut (halaman 2 berisi nomor 11–20) dan
+hasil berikutnya baru diambil dari sumbernya saat kamu menekan `↓`.
+
+Berlaku untuk:
+
+- hasil pencarian YouTube, YouTube Music, SoundCloud, dan web (`-S`)
+- isi halaman yang dijelajahi (aksi `j` di pencarian)
+- isi playlist sebelum diunduh (`-y`), lalu pilih item yang mau diunduh
+- antrian player (`-p`)
+- daftar subdomain (lengkap dengan IP-nya) dan port terbuka (`-d`)
+- ringkasan banyak URL (`--scan-list`)
+
+Kalau output dialihkan ke file/pipe, semua daftar dicetak penuh tanpa
+menunggu tombol. Paging juga bisa dimatikan dengan `--no-pager` atau
+environment variable `FREEASE_NO_PAGER=1`. Di terminal yang tidak punya
+tombol panah (beberapa keyboard HP), ketik `n` atau `p` lalu Enter.
 
 
 ## Modul recon
@@ -336,6 +368,13 @@ python freease.py -S "hindia evaluasi" --search-source ytm
 python freease.py -S "cara install termux" --search-source web --search-region id-id
 ```
 
+Tanpa mode interaktif, halaman tertentu bisa langsung diminta:
+
+```bash
+python freease.py -S "dewa 19" --search-source yt --search-page 2 --search-action list
+python freease.py -S "dewa 19" --search-source yt --search-page 2 --search-action music --search-pick 13
+```
+
 Kalau `--search-source` tidak diisi, freease menanyakan sumbernya dulu:
 
 ```
@@ -353,9 +392,12 @@ Kalau `--search-source` tidak diisi, freease menanyakan sumbernya dulu:
 | `sc`    | Lagu di SoundCloud                                                     |
 | `web`   | Halaman web apa saja, lewat DuckDuckGo (tanpa API key)                 |
 
-Hasilnya tampil sebagai tabel bernomor, urut dari yang paling relevan.
-Nomor bisa dipilih satu (`3`), beberapa (`1,4`), rentang (`2-5`), atau
-semua (`a`). Setelah nomor dipilih, freease menanyakan aksi, dan aksi itu
+Hasilnya tampil sebagai tabel bernomor, urut dari yang paling relevan,
+10 hasil per halaman (atur dengan `--search-limit`, maks 50). Tekan `↓` untuk
+memuat hasil berikutnya (11–20, 21–30, sampai 300 hasil), `↑` untuk kembali.
+Halaman yang sudah pernah tampil isinya tetap sama dan tidak ada hasil yang
+muncul dua kali. Nomor bisa dipilih satu (`3`), beberapa (`1,4`), rentang
+(`2-5`), atau semua di halaman yang sedang tampil (`a`). Setelah nomor dipilih, freease menanyakan aksi, dan aksi itu
 dijalankan untuk semua nomor yang dipilih. Contoh: `a` lalu `s` memeriksa
 keamanan semua link sekaligus. Setelah aksi selesai, daftar hasil muncul
 lagi. Ketik `c` untuk mencari kata kunci lain, `k` untuk kembali ke daftar
@@ -547,7 +589,9 @@ python freease.py -y "https://youtube.com/playlist?list=ID" --yt-mode musik --yt
 python freease.py -D "https://www.tiktok.com/@user/video/ID"
 ```
 
-Kalau mode dan kualitasnya tidak diisi, pilihannya akan ditanyakan. Link dari
+Kalau mode dan kualitasnya tidak diisi, pilihannya akan ditanyakan. Untuk
+link playlist, isi playlist ditampilkan dulu per halaman, lalu kamu memilih
+item mana yang diunduh (`a` = semua, atau mis. `1-5,8`). Link dari
 YouTube Music, SoundCloud, Bandcamp, Audiomack, dan Mixcloud otomatis
 ditawarkan sebagai musik.
 
@@ -574,6 +618,7 @@ python freease.py -y "https://www.pinterest.com/user/board/" # seluruh isi board
 | `--yt-bitrate`      | `128`, `192` (default), `256`, `320`                         |
 | `--yt-container`    | `mp4` (default) atau `mkv`                                   |
 | `--yt-playlist`     | Download seluruh playlist, album, atau board tanpa ditanya   |
+| `--yt-items SEL`    | Hanya item playlist tertentu, mis. `1-5,8`                   |
 | `--yt-dir`          | Folder tujuan (default `./freease_downloads`)                |
 | `--yt-cookies FILE` | File `cookies.txt` (format Netscape) untuk konten yang butuh login / dibatasi umur |
 | `--yt-browser-cookies B` | Ambil cookies langsung dari browser: `chrome`, `firefox`, `edge`, `brave`, … |
@@ -615,6 +660,8 @@ Gunakan hanya untuk konten milikmu sendiri atau yang memang boleh diunduh.
 | `--max-redirects N`     | Batas redirect yang ditelusuri (default 10)         |
 | `-o DIR`                | Folder laporan (default `./freease_output`)         |
 | `--no-export`           | Tampilkan di terminal saja, tanpa file laporan      |
+| `--no-pager`            | Cetak semua daftar sekaligus, tanpa halaman         |
+| `--search-page N`       | Pencarian mulai dari halaman ke-N                   |
 | `-V`, `--version`       | Tampilkan versi                                     |
 
 Semua API key juga bisa diisi lewat environment variable supaya tidak
@@ -666,6 +713,7 @@ freease_search.py            pencarian lagu, video, dan web
 freease_player.py            media player
 freease_youtube.py           media downloader (YouTube, Pinterest, dll)
 freease_exiftool_module.py   ekstraksi metadata + penilaian risiko privasi
+freease_ui.py                tombol panah & tampilan berhalaman (dipakai semua modul)
 freease_version.py           nomor versi (satu-satunya tempat versi ditulis)
 CHANGELOG.md                 catatan perubahan tiap versi
 requirements.txt
