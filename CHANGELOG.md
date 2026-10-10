@@ -2,6 +2,31 @@
 
 Semua perubahan penting freease dicatat di file ini.
 
+## [1.65.0]
+
+### Modul baru: Log Defender (`-L`) — sisi blue team
+- Membaca log server dan mengenali pola serangan, lalu meringkasnya jadi daftar
+  insiden per IP yang berperingkat (KRITIS/TINGGI/SEDANG). Pasif: hanya membaca
+  log, tidak menyerang, memblokir, atau mengubah sistem.
+- Sumber log bisa digabung, format dideteksi otomatis: file apa saja, `auto`
+  (cari lokasi log umum), `journal` (sshd dari journald), `docker:<nama>`
+  (`docker logs`), dan `-` (stdin/pipe).
+- Deteksi SSH: brute-force (gagal login beruntun), percobaan user tidak valid,
+  enumerasi banyak username, dan login berhasil setelah banyak gagal (indikasi
+  brute-force yang tembus — dinilai KRITIS). Menangani "message repeated N times".
+- Deteksi web (nginx/apache combined): enumerasi path (banjir 404/penolakan),
+  probing path sensitif (`/.env`, `/wp-login.php`, `/.git`, phpMyAdmin, …),
+  User-Agent perkakas pemindai (sqlmap, nikto, nmap, …), tanda injeksi/traversal
+  di URL, dan laju permintaan tidak wajar.
+- `--enrich` menyambungkan IP penyerang teratas ke modul reputasi IP (AbuseIPDB
+  · OTX · ip-api) yang sudah ada.
+- Ambang bisa diatur: `--ssh-threshold`, `--web-threshold`. IP privat/LAN
+  dilewati kecuali `--include-private`. Laporan JSON & HTML, daftar berhalaman,
+  exit code mengikuti tingkat tertinggi (0 bersih · 1 ada insiden · 2 kritis).
+
+### Etika
+- Tambah `ETIKA.md` (pedoman penggunaan bertanggung jawab, Indonesia & Inggris).
+
 ## [1.64.2]
 
 ### Umum

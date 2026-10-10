@@ -55,6 +55,7 @@ from rich.markup import escape
 from freease_youtube import add_youtube_args, downloader_from_args
 from freease_player import add_player_args, player_from_args
 from freease_scan import add_scan_args, run_scan_from_args
+from freease_defend import add_defend_args, run_defend_from_args
 from freease_search import add_search_args, search_from_args
 from freease_exiftool_module import ExifToolExtractor
 from freease_ui import disable_paging, is_interactive, paginate
@@ -321,7 +322,7 @@ def _print_banner() -> None:
     console.print(
         "  [dim]Modules: NetworkRecon · PortScan · WAF · WHOIS · "
         "EmailSec · Username · Breach · IPReputation · ExifTool · Downloader · "
-        "Player · Search · URLScanner[/dim]"
+        "Player · Search · URLScanner · LogDefender[/dim]"
     )
     console.print(f"  [dim]{'─' * 78}[/dim]\n")
 
@@ -3657,6 +3658,7 @@ Modul yang tersedia:
   -S   Cari lagu/video (YouTube, YT Music, SoundCloud) atau web (DuckDuckGo)
   -s   URL Safety Scanner (deteksi phishing / tautan berbahaya, analisis pasif)
   -p   Media Player (putar audio/video di terminal — Linux/Termux)
+  -L   Log Defender — deteksi serangan dari log (SSH brute-force, scanning web, dll)
 
 Contoh penggunaan:
   python freease.py -d example.com
@@ -3684,6 +3686,11 @@ Contoh penggunaan:
   python freease.py -s http://bit.ly/xxxx --urlhaus                       (+ cek URLhaus)
   python freease.py --scan-list daftar_url.txt -o ./laporan               (batch dari file)
   python freease.py -s https://example.com --offline                     (tanpa jaringan)
+
+  python freease.py -L auto                                               (cari log umum & deteksi)
+  python freease.py -L /var/log/auth.log /var/log/nginx/access.log        (file tertentu)
+  python freease.py -L journal --since "1 hour ago" --enrich              (journald + reputasi IP)
+  journalctl -u ssh | python freease.py -L -                              (dari pipe)
 
   python freease.py -p lagu.mp3                                           (putar audio)
   python freease.py -p ./Music --shuffle --loop                          (playlist folder)
@@ -3737,6 +3744,7 @@ API Keys (semua gratis):
     add_player_args(p)
     add_search_args(p)
     add_scan_args(p)
+    add_defend_args(p)
     return p
 
 
@@ -3759,11 +3767,12 @@ def main():
     url_scan_requested = bool(args.scan or args.scan_list)
     player_requested   = bool(args.play)
     search_requested   = bool(args.search)
+    defend_requested   = bool(args.log_sources)
 
     _print_banner()
 
     if not any([scan_requested, args.youtube, url_scan_requested, player_requested,
-                search_requested]):
+                search_requested, defend_requested]):
         console.print("[yellow]Gunakan minimal satu modul:[/yellow]")
         console.print("  [cyan]-d[/cyan]  domain          NetworkRecon + PortScan + WAF + WHOIS + EmailSec")
         console.print(f"  [cyan]-u[/cyan]  username        Username Checker ({len(USERNAME_PLATFORMS)} platform)")
@@ -3774,6 +3783,7 @@ def main():
         console.print("  [cyan]-S[/cyan]  kata kunci      Cari lagu/video/web, lalu putar, unduh, atau buka")
         console.print("  [cyan]-s[/cyan]  URL             URL Safety Scanner (deteksi phishing/berbahaya)")
         console.print("  [cyan]-p[/cyan]  file/URL        Media Player (audio/video di terminal)")
+        console.print("  [cyan]-L[/cyan]  log/auto        Log Defender (deteksi serangan dari log, blue team)")
         console.print("\n[dim]Jalankan dengan --help untuk bantuan lengkap[/dim]")
         sys.exit(0)
 
@@ -3847,6 +3857,19 @@ def main():
                 worst = sc_res.get("worst_score", 0)
                 # Exit code mencerminkan risiko: 2 berbahaya · 1 mencurigakan · 0 aman
                 exit_code = 2 if worst >= 60 else 1 if worst >= 25 else 0
+
+        # Log Defender berdiri sendiri (punya laporan JSON/HTML sendiri)
+        if defend_requested:
+            console.print(Panel(
+                "[bold]Deteksi serangan dari log — analisis pasif, hanya membaca[/bold]",
+                title="[bold]MODULE 14 — LOG DEFENDER[/bold]",
+                border_style="cyan"
+            ))
+            df_res = run_defend_from_args(args, console)
+            if df_res.get("error"):
+                exit_code = 1
+            elif exit_code == 0:
+                exit_code = 2 if df_res.get("worst_rank") == 3 else 1 if df_res.get("incident_count") else 0
 
         if scan_requested:
             asyncio.run(FreeaseEngine(args).run())

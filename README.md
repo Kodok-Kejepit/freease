@@ -10,7 +10,7 @@
 # freease
 
 Tool recon dan audit attack surface berbasis terminal, ditulis dengan Python.
-Versi 1.64.2, oleh Kodok-Kejepit.
+Versi 1.65.0, oleh Kodok-Kejepit.
 
 freease menggabungkan beberapa pekerjaan yang biasanya butuh banyak tool terpisah:
 recon domain, port scan, deteksi WAF, WHOIS, cek keamanan email, cek username,
@@ -34,6 +34,7 @@ lain), serta pemutar audio/video. Semuanya dijalankan dari satu perintah,
 - [Pencarian](#pencarian)
 - [Media Player](#media-player)
 - [Media Downloader](#media-downloader)
+- [Log Defender (blue team)](#log-defender-blue-team)
 - [Semua opsi](#semua-opsi)
 - [Laporan](#laporan)
 - [Struktur file](#struktur-file)
@@ -632,6 +633,57 @@ subtitle) yang sempat dibuat langsung dibersihkan.
 Gunakan hanya untuk konten milikmu sendiri atau yang memang boleh diunduh.
 
 
+## Log Defender (blue team)
+
+Membaca log server Anda, mengenali pola serangan, lalu meringkasnya jadi daftar
+insiden per IP yang berperingkat. Modul ini **pasif**: hanya membaca log yang
+sudah ada, tidak menyerang, tidak memblokir, dan tidak mengubah apa pun di
+sistem. Cocok dipasangkan dengan lab uji sendiri — serangan yang Anda jalankan
+akan muncul di sini sebagai insiden.
+
+```bash
+python freease.py -L auto                                    # cari log umum lalu deteksi
+python freease.py -L /var/log/auth.log /var/log/nginx/access.log
+python freease.py -L journal --since "1 hour ago"            # sshd dari journald
+python freease.py -L docker:web-1 --enrich -o ./laporan      # docker + reputasi IP
+journalctl -u ssh | python freease.py -L -                   # dari pipe
+```
+
+Sumber log boleh digabung dan formatnya dideteksi otomatis:
+
+| Sumber          | Artinya                                              |
+|-----------------|------------------------------------------------------|
+| `FILE`          | file log apa saja (auth.log, secure, access.log, …)  |
+| `auto`          | cari lokasi log umum di sistem ini                   |
+| `journal`       | log sshd dari systemd-journald (`journalctl`)        |
+| `docker:<nama>` | keluaran `docker logs <nama>`                        |
+| `-`             | baca dari stdin (pipe)                               |
+
+Yang dikenali:
+
+- **SSH** — brute-force (gagal login beruntun), percobaan user tidak valid,
+  enumerasi banyak username, dan login berhasil setelah banyak gagal. Yang
+  terakhir dinilai **KRITIS**, karena itu indikasi brute-force yang tembus.
+- **Web** (nginx/apache) — enumerasi path (banjir 404/penolakan), probing path
+  sensitif (`/.env`, `/wp-login.php`, `/.git`, phpMyAdmin, …), User-Agent
+  perkakas pemindai (sqlmap, nikto, nmap, …), tanda injeksi/traversal di URL,
+  dan laju permintaan tidak wajar.
+
+Dengan `--enrich`, IP penyerang teratas dicek ke modul reputasi IP (AbuseIPDB,
+AlienVault OTX, ip-api) untuk menambahkan negara, ISP, dan skor risiko. Ambang
+deteksi bisa diatur dengan `--ssh-threshold` dan `--web-threshold`. IP privat
+atau LAN dilewati kecuali `--include-private`.
+
+Hasil tampil sebagai daftar insiden berperingkat (KRITIS / TINGGI / SEDANG),
+plus laporan JSON dan HTML. Exit code mengikuti tingkat tertinggi: `0` bersih,
+`1` ada insiden, `2` ada yang kritis — berguna untuk pemantauan terjadwal
+(mis. cron).
+
+Membaca `/var/log/*` biasanya butuh hak akses root; jalankan dengan `sudo` bila
+perlu. Gunakan hanya pada log dari sistem milik Anda sendiri atau yang Anda
+kelola.
+
+
 ## Semua opsi
 
 | Opsi                    | Keterangan                                          |
@@ -646,6 +698,12 @@ Gunakan hanya untuk konten milikmu sendiri atau yang memang boleh diunduh.
 | `-S QUERY`              | Cari lagu/video/web, lalu putar, unduh, atau buka   |
 | `-p SRC [SRC ...]`      | Putar audio/video (file, folder, atau link)         |
 | `-y URL`, `-D URL`      | Download dari YouTube, Pinterest, dan situs lain    |
+| `-L SRC [SRC ...]`      | Log Defender: deteksi serangan dari log             |
+| `--since WAKTU`         | Batas waktu untuk `-L journal`/`docker` (mis. "1 hour ago") |
+| `--enrich`              | Cek reputasi IP penyerang teratas (`-L`)            |
+| `--ssh-threshold N`     | Ambang brute-force SSH per IP (default 10)          |
+| `--web-threshold N`     | Ambang enumerasi path web per IP (default 25)       |
+| `--include-private`     | Ikut laporkan IP privat/LAN di `-L`                 |
 | `--hibp-key KEY`        | API key Have I Been Pwned                           |
 | `--abuseipdb-key KEY`   | API key AbuseIPDB                                   |
 | `--skip-portscan`       | Lewati port scan                                    |
@@ -709,6 +767,7 @@ browser dan berisi ringkasan skor, temuan per modul, serta badge status.
 ```
 freease.py                   entry point, modul recon, laporan
 freease_scan.py              URL Safety Scanner
+freease_defend.py            Log Defender (deteksi serangan dari log)
 freease_search.py            pencarian lagu, video, dan web
 freease_player.py            media player
 freease_youtube.py           media downloader (YouTube, Pinterest, dll)
