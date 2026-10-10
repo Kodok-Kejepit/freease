@@ -760,6 +760,13 @@ python freease.py --version
 ```
 
 
+## Etika
+
+freease hanya boleh dipakai pada aset milik sendiri atau aset pihak lain yang
+sudah memberi izin tertulis. Baca [ETIKA.md](ETIKA.md) sebelum memakai modul
+yang menyentuh sistem atau data orang lain. Penyalahgunaan adalah tanggung
+jawab pengguna sepenuhnya.
+
 ## Lisensi
 
 Lihat [LICENSE](LICENSE).
