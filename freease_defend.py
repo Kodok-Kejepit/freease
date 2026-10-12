@@ -485,6 +485,7 @@ class LogDefender:
             "time_span": [self.span[0].isoformat() if self.span[0] else None,
                           self.span[1].isoformat() if self.span[1] else None],
             "incident_count": len(incidents),
+            "not_inspected": self.lines == 0,
             "worst_rank": worst,
             "incidents": incidents,
         }
@@ -542,6 +543,11 @@ class LogDefender:
         rank_color = {3: "bold red", 2: "red", 1: "yellow", 0: "green"}[res["worst_rank"]]
         verdict = (f"{res['incident_count']} IP mencurigakan" if res["incident_count"]
                    else "Tidak ada aktivitas mencurigakan terdeteksi")
+        if res["lines"] == 0:
+            rank_name, rank_color = "TIDAK TERPERIKSA", "yellow"
+            verdict = "0 baris terbaca — hasil ini tidak berarti sistem aman"
+        elif res["events"] == 0 and not res["incident_count"]:
+            verdict += " (tidak ada baris yang formatnya dikenali — cek apakah ini log yang tepat)"
         self.console.print(Panel(
             "\n".join(head) + f"\n\n[{rank_color}]TINGKAT TERTINGGI: {rank_name}  ·  {verdict}[/{rank_color}]",
             title="[bold]LOG DEFENDER[/bold]",
@@ -692,7 +698,11 @@ def main() -> None:
     if not args.log_sources:
         p.error("masukkan minimal satu sumber log (mis. -L auto)")
     res = run_defend_from_args(args)
-    # exit code: 2 kritis · 1 ada insiden · 0 bersih
+    # exit code: 3 tidak terperiksa · 2 kritis · 1 ada insiden · 0 bersih
+    if res.get("error"):
+        sys.exit(1)
+    if res.get("not_inspected"):
+        sys.exit(3)          # tidak ada log yang terbaca: BUKAN berarti aman
     sys.exit(2 if res.get("worst_rank") == 3 else 1 if res.get("incident_count") else 0)
 
 

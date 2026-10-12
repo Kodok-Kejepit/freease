@@ -10,7 +10,7 @@
 # freease
 
 Tool recon dan audit attack surface berbasis terminal, ditulis dengan Python.
-Versi 1.65.0, oleh Kodok-Kejepit.
+Versi 1.66.0, oleh Kodok-Kejepit.
 
 freease menggabungkan beberapa pekerjaan yang biasanya butuh banyak tool terpisah:
 recon domain, port scan, deteksi WAF, WHOIS, cek keamanan email, cek username,
@@ -35,6 +35,7 @@ lain), serta pemutar audio/video. Semuanya dijalankan dari satu perintah,
 - [Media Player](#media-player)
 - [Media Downloader](#media-downloader)
 - [Log Defender (blue team)](#log-defender-blue-team)
+- [Host Compromise Scanner (blue team)](#host-compromise-scanner-blue-team)
 - [Semua opsi](#semua-opsi)
 - [Laporan](#laporan)
 - [Struktur file](#struktur-file)
@@ -675,13 +676,61 @@ deteksi bisa diatur dengan `--ssh-threshold` dan `--web-threshold`. IP privat
 atau LAN dilewati kecuali `--include-private`.
 
 Hasil tampil sebagai daftar insiden berperingkat (KRITIS / TINGGI / SEDANG),
-plus laporan JSON dan HTML. Exit code mengikuti tingkat tertinggi: `0` bersih,
-`1` ada insiden, `2` ada yang kritis — berguna untuk pemantauan terjadwal
-(mis. cron).
+plus laporan JSON dan HTML. Exit code mengikuti hasilnya: `0` bersih, `1` ada
+insiden, `2` ada yang kritis, `3` tidak ada log yang terbaca. Kode `3` sengaja
+dibedakan dari `0`: log yang tidak terbaca bukan berarti sistem aman, dan itu
+penting untuk pemantauan terjadwal (mis. cron).
 
 Membaca `/var/log/*` biasanya butuh hak akses root; jalankan dengan `sudo` bila
 perlu. Gunakan hanya pada log dari sistem milik Anda sendiri atau yang Anda
 kelola.
+
+
+## Host Compromise Scanner (blue team)
+
+Memeriksa sebuah host untuk **sisa-sisa kompromi**: web shell yang ditanam di
+direktori web, dan mekanisme persistence yang ditinggalkan penyerang. Log
+Defender melihat serangan saat terjadi dari log; modul ini mencari jejak yang
+tertinggal setelah penyerang berhasil masuk. Pola ini umum pada serangan ke
+server surel dan aplikasi web: akses awal, pasang web shell, buat persistence,
+curi credential, lalu bergerak ke server lain.
+
+Modul ini **pasif**: hanya membaca berkas lalu melaporkan temuan. Tidak pernah
+mengubah, menghapus, mengkarantina, atau menjalankan apa pun. Satu temuan
+berarti "perlu ditinjau manusia", bukan vonis otomatis.
+
+```bash
+python freease.py -C /var/www                            # pindai web shell
+python freease.py -C auto --persistence -o ./laporan     # web root umum + persistence
+python freease.py -C /var/www/html --recent 7            # fokus yang berubah 7 hari terakhir
+```
+
+Yang diperiksa:
+
+- **Web shell** (PHP, JSP, ASP, dan skrip lain): pola kode berbahaya yang
+  menggabungkan fungsi eksekusi dengan input dari request, `eval` atas data
+  yang di-decode, callback yang dikendalikan request, penanda shell yang
+  dikenal, PHP yang disembunyikan di berkas non-skrip (mis. `.jpg`), ekstensi
+  ganda (`shell.php.jpg`), skrip sisi server di folder unggahan, dan blob
+  ter-encode panjang berentropi tinggi. Aturan yang cocok pada satu berkas
+  digabung jadi satu temuan.
+- **Persistence** (dengan `--persistence`): cron sistem dan user, unit systemd,
+  kunci di `~/.ssh/authorized_keys`, berkas rc shell (`.bashrc`, `profile.d`,
+  dan sejenisnya), serta `/etc/ld.so.preload`. Yang ditandai adalah baris yang
+  mengunduh lalu menjalankan, menyandi perintah, atau menunjuk lokasi tak
+  lazim seperti `/tmp` dan `/dev/shm`.
+
+Dengan `--recent HARI`, berkas yang berubah dalam rentang itu dinaikkan
+tingkatnya, karena web shell biasanya baru ditanam. `--enrich` mengecek reputasi
+IP yang muncul di temuan. Hasil tampil per halaman, plus laporan JSON dan HTML.
+Exit code: `0` bersih, `1` ada temuan (atau galat), `2` ada yang kritis, `3` tidak
+ada berkas yang terbaca. Kode `3` dibedakan dari `0` karena "tidak ada yang
+diperiksa" bukan berarti host bersih.
+
+Membaca `/etc`, `/var/spool`, dan home pengguna lain biasanya butuh root;
+jalankan dengan `sudo` bila perlu. Berkas yang tidak terbaca dihitung dan
+dilaporkan, supaya "bersih" tidak menyesatkan. Gunakan hanya pada host milik
+Anda sendiri atau yang Anda kelola.
 
 
 ## Semua opsi
@@ -704,6 +753,10 @@ kelola.
 | `--ssh-threshold N`     | Ambang brute-force SSH per IP (default 10)          |
 | `--web-threshold N`     | Ambang enumerasi path web per IP (default 25)       |
 | `--include-private`     | Ikut laporkan IP privat/LAN di `-L`                 |
+| `-C PATH [PATH ...]`    | Host Compromise Scanner: cari web shell di PATH atau `auto` |
+| `--persistence`         | Ikut periksa cron, systemd, authorized_keys, rc, ld.so.preload |
+| `--recent HARI`         | Utamakan berkas yang berubah N hari terakhir (`-C`) |
+| `--max-size MB`         | Lewati berkas lebih besar dari MB ini (`-C`, default 5) |
 | `--hibp-key KEY`        | API key Have I Been Pwned                           |
 | `--abuseipdb-key KEY`   | API key AbuseIPDB                                   |
 | `--skip-portscan`       | Lewati port scan                                    |
@@ -768,6 +821,7 @@ browser dan berisi ringkasan skor, temuan per modul, serta badge status.
 freease.py                   entry point, modul recon, laporan
 freease_scan.py              URL Safety Scanner
 freease_defend.py            Log Defender (deteksi serangan dari log)
+freease_hostcheck.py         Host Compromise Scanner (web shell + persistence)
 freease_search.py            pencarian lagu, video, dan web
 freease_player.py            media player
 freease_youtube.py           media downloader (YouTube, Pinterest, dll)

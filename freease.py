@@ -56,6 +56,7 @@ from freease_youtube import add_youtube_args, downloader_from_args
 from freease_player import add_player_args, player_from_args
 from freease_scan import add_scan_args, run_scan_from_args
 from freease_defend import add_defend_args, run_defend_from_args
+from freease_hostcheck import add_hostcheck_args, run_hostcheck_from_args
 from freease_search import add_search_args, search_from_args
 from freease_exiftool_module import ExifToolExtractor
 from freease_ui import disable_paging, is_interactive, paginate
@@ -322,7 +323,7 @@ def _print_banner() -> None:
     console.print(
         "  [dim]Modules: NetworkRecon · PortScan · WAF · WHOIS · "
         "EmailSec · Username · Breach · IPReputation · ExifTool · Downloader · "
-        "Player · Search · URLScanner · LogDefender[/dim]"
+        "Player · Search · URLScanner · LogDefender · HostCheck[/dim]"
     )
     console.print(f"  [dim]{'─' * 78}[/dim]\n")
 
@@ -3659,6 +3660,7 @@ Modul yang tersedia:
   -s   URL Safety Scanner (deteksi phishing / tautan berbahaya, analisis pasif)
   -p   Media Player (putar audio/video di terminal — Linux/Termux)
   -L   Log Defender — deteksi serangan dari log (SSH brute-force, scanning web, dll)
+  -C   Host Compromise Scanner — cari web shell & persistence di host (blue team)
 
 Contoh penggunaan:
   python freease.py -d example.com
@@ -3691,6 +3693,10 @@ Contoh penggunaan:
   python freease.py -L /var/log/auth.log /var/log/nginx/access.log        (file tertentu)
   python freease.py -L journal --since "1 hour ago" --enrich              (journald + reputasi IP)
   journalctl -u ssh | python freease.py -L -                              (dari pipe)
+
+  python freease.py -C /var/www                                           (pindai web shell)
+  python freease.py -C auto --persistence -o ./laporan                    (web root + persistence)
+  python freease.py -C /var/www/html --recent 7                           (fokus berubah 7 hari)
 
   python freease.py -p lagu.mp3                                           (putar audio)
   python freease.py -p ./Music --shuffle --loop                          (playlist folder)
@@ -3745,6 +3751,7 @@ API Keys (semua gratis):
     add_search_args(p)
     add_scan_args(p)
     add_defend_args(p)
+    add_hostcheck_args(p)
     return p
 
 
@@ -3768,11 +3775,12 @@ def main():
     player_requested   = bool(args.play)
     search_requested   = bool(args.search)
     defend_requested   = bool(args.log_sources)
+    hostcheck_requested= bool(args.hostcheck_targets)
 
     _print_banner()
 
     if not any([scan_requested, args.youtube, url_scan_requested, player_requested,
-                search_requested, defend_requested]):
+                search_requested, defend_requested, hostcheck_requested]):
         console.print("[yellow]Gunakan minimal satu modul:[/yellow]")
         console.print("  [cyan]-d[/cyan]  domain          NetworkRecon + PortScan + WAF + WHOIS + EmailSec")
         console.print(f"  [cyan]-u[/cyan]  username        Username Checker ({len(USERNAME_PLATFORMS)} platform)")
@@ -3784,6 +3792,7 @@ def main():
         console.print("  [cyan]-s[/cyan]  URL             URL Safety Scanner (deteksi phishing/berbahaya)")
         console.print("  [cyan]-p[/cyan]  file/URL        Media Player (audio/video di terminal)")
         console.print("  [cyan]-L[/cyan]  log/auto        Log Defender (deteksi serangan dari log, blue team)")
+        console.print("  [cyan]-C[/cyan]  path/auto       Host Compromise Scanner (web shell + persistence, blue team)")
         console.print("\n[dim]Jalankan dengan --help untuk bantuan lengkap[/dim]")
         sys.exit(0)
 
@@ -3869,7 +3878,24 @@ def main():
             if df_res.get("error"):
                 exit_code = 1
             elif exit_code == 0:
-                exit_code = 2 if df_res.get("worst_rank") == 3 else 1 if df_res.get("incident_count") else 0
+                exit_code = (3 if df_res.get("not_inspected") else
+                             2 if df_res.get("worst_rank") == 3 else
+                             1 if df_res.get("incident_count") else 0)
+
+        # Host Compromise Scanner berdiri sendiri (laporan JSON/HTML sendiri)
+        if hostcheck_requested:
+            console.print(Panel(
+                "[bold]Cari web shell & persistence — analisis pasif, hanya membaca berkas[/bold]",
+                title="[bold]MODULE 15 — HOST COMPROMISE SCANNER[/bold]",
+                border_style="cyan"
+            ))
+            hc_res = run_hostcheck_from_args(args, console)
+            if hc_res.get("error"):
+                exit_code = 1
+            elif exit_code == 0:
+                exit_code = (3 if hc_res.get("not_inspected") else
+                             2 if hc_res.get("worst_rank") == 3 else
+                             1 if hc_res.get("finding_count") else 0)
 
         if scan_requested:
             asyncio.run(FreeaseEngine(args).run())

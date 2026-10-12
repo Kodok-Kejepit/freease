@@ -2,6 +2,32 @@
 
 Semua perubahan penting freease dicatat di file ini.
 
+## [1.66.0]
+
+### Modul baru: Host Compromise Scanner (`-C`) — sisi blue team
+- Memeriksa host untuk sisa kompromi: **web shell** di direktori web dan
+  **mekanisme persistence** yang ditinggalkan penyerang. Melengkapi Log
+  Defender — yang satu melihat serangan dari log, yang ini mencari jejak yang
+  tertinggal setelah penyerang masuk. Pasif: hanya membaca berkas, tidak
+  pernah mengubah/menghapus/menjalankan apa pun.
+- Web shell: signature pola kode berbahaya (sink + input request, eval atas
+  data ter-decode, preg_replace /e, callback dari request, penanda shell yang
+  dikenal, JSP/ASP exec), PHP tersembunyi di berkas non-skrip (mis. `.jpg`),
+  ekstensi ganda (`shell.php.jpg`), skrip sisi server di folder unggahan, dan
+  blob ter-encode panjang berentropi tinggi. Aturan yang cocok diagregasi jadi
+  satu temuan per berkas.
+- Persistence (`--persistence`): cron (sistem + user), unit systemd, kunci di
+  `~/.ssh/authorized_keys`, berkas rc shell (`.bashrc`, `profile.d`, …), dan
+  `/etc/ld.so.preload`. Menandai baris yang mengunduh-lalu-menjalankan,
+  menyandi perintah, atau menunjuk lokasi tak lazim (`/tmp`, `/dev/shm`).
+- `--recent N` mengutamakan berkas yang berubah N hari terakhir (web shell baru
+  ditanam). `--max-size MB` melewati berkas besar. `--enrich` mengecek reputasi
+  IP yang muncul di temuan. Laporan JSON & HTML, daftar berhalaman, exit code
+  0 bersih · 1 temuan/galat · 2 kritis · 3 tidak ada berkas terbaca. Path yang
+  tidak ada atau folder kosong dilaporkan sebagai "tidak terperiksa", bukan
+  "bersih".
+- Setiap temuan berarti "perlu ditinjau manusia", bukan vonis otomatis.
+
 ## [1.65.0]
 
 ### Modul baru: Log Defender (`-L`) — sisi blue team
@@ -22,7 +48,9 @@ Semua perubahan penting freease dicatat di file ini.
   · OTX · ip-api) yang sudah ada.
 - Ambang bisa diatur: `--ssh-threshold`, `--web-threshold`. IP privat/LAN
   dilewati kecuali `--include-private`. Laporan JSON & HTML, daftar berhalaman,
-  exit code mengikuti tingkat tertinggi (0 bersih · 1 ada insiden · 2 kritis).
+  exit code 0 bersih · 1 ada insiden · 2 kritis · 3 tidak ada log yang terbaca.
+  Log kosong, file tidak ada, atau format tak dikenali dilaporkan jujur sebagai
+  "tidak terperiksa" (kode 3), bukan "aman".
 
 ### Etika
 - Tambah `ETIKA.md` (pedoman penggunaan bertanggung jawab, Indonesia & Inggris).
