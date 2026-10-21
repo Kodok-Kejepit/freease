@@ -37,6 +37,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -93,11 +94,20 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
     val feed = MutableStateFlow(HomeFeed())
     var refreshing = mutableStateOf(false)
 
-    init { load() }
+    init {
+        val c = cached
+        if (c != null && System.currentTimeMillis() - c.first < CACHE_MS) feed.value = c.second else load()
+    }
 
     fun refresh() {
         refreshing.value = true
         load()
+    }
+
+    companion object {
+        /** Beranda disimpan 30 menit supaya membuka app tidak memicu belasan ekstraksi lagi. */
+        private const val CACHE_MS = 30 * 60_000L
+        private var cached: Pair<Long, HomeFeed>? = null
     }
 
     private fun load() = viewModelScope.launch {
@@ -110,7 +120,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
 
             val trendingJob = async { runCatching { yt.trendingMusic() }.getOrDefault(emptyList()) }
             val picksJob = async {
-                val seeds = (recent.take(3) + top.take(2)).distinctBy { it.id }
+                val seeds = (recent.take(2) + top.take(1)).distinctBy { it.id }
                 seeds.map { s -> async { runCatching { yt.related(s.id, 12) }.getOrDefault(emptyList()) } }
                     .awaitAll().flatten()
                     .distinctBy { it.id }
@@ -119,7 +129,7 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
                     .take(20)
             }
             val followedJob = async {
-                followed.take(4).map { a ->
+                followed.take(3).map { a ->
                     async { runCatching { yt.artist(a.url).songs.take(4) }.getOrDefault(emptyList()) }
                 }.awaitAll().flatten().shuffled()
             }
@@ -143,6 +153,8 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
             )
             if (trending.isEmpty() && picks.isEmpty()) {
                 feed.value = feed.value.copy(error = if (c.isOnline()) "YouTube tidak merespons. Coba lagi sebentar." else "Tidak ada koneksi internet.")
+            } else {
+                cached = System.currentTimeMillis() to feed.value
             }
         } catch (e: Exception) {
             feed.value = feed.value.copy(loading = false, error = e.message ?: "Terjadi kesalahan")
@@ -159,10 +171,10 @@ fun HomeScreen() {
     val actions = LocalActions.current
     val vm = appViewModel { HomeViewModel(it) }
     val feed by vm.feed.collectAsState()
-    val recent by actions.library.recent(8).collectAsState(emptyList())
-    val mostPlayed by actions.library.mostPlayed(12).collectAsState(emptyList())
-    val playlists by actions.library.playlistSummaries().collectAsState(emptyList())
-    val likedCount by actions.library.likedCount().collectAsState(0)
+    val recent by remember { actions.library.recent(8) }.collectAsState(emptyList())
+    val mostPlayed by remember { actions.library.mostPlayed(12) }.collectAsState(emptyList())
+    val playlists by remember { actions.library.playlistSummaries() }.collectAsState(emptyList())
+    val likedCount by remember { actions.library.likedCount() }.collectAsState(0)
     val accent = Freease.accent
 
     PullToRefreshBox(isRefreshing = vm.refreshing.value, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
@@ -282,7 +294,7 @@ fun HomeScreen() {
                 }
             }
             feed.becauseYouListen.forEach { mix ->
-                item(key = "because_${mix.artist}") {
+                item {
                     SectionHeader(mix.artist, subtitle = "Karena kamu mendengarkan")
                     PlaylistCardRow(mix.playlists)
                 }
@@ -317,7 +329,7 @@ private fun QuickPicksGrid(songs: List<Song>) {
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        itemsIndexed(songs, key = { _, s -> s.id }) { i, s ->
+        itemsIndexed(songs, key = { i, s -> "${s.id}_$i" }) { i, s ->
             val current = state.song?.id == s.id
             Row(
                 Modifier
@@ -356,7 +368,7 @@ private fun QuickPicksGrid(songs: List<Song>) {
 fun SongCardRow(songs: List<Song>, from: String) {
     val actions = LocalActions.current
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        itemsIndexed(songs, key = { _, s -> s.id }) { i, s ->
+        itemsIndexed(songs, key = { i, s -> "${s.id}_$i" }) { i, s ->
             SongCard(s, onClick = { actions.player.play(songs, i, from = from) })
         }
     }
@@ -367,7 +379,7 @@ fun SongCardRow(songs: List<Song>, from: String) {
 fun PlaylistCardRow(list: List<PlaylistItem>) {
     val actions = LocalActions.current
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        items(list, key = { it.url }) { p -> PlaylistCard(p, onClick = { actions.openPlaylist(p.url) }) }
+        itemsIndexed(list, key = { i, p -> "${p.url}_$i" }) { _, p -> PlaylistCard(p, onClick = { actions.openPlaylist(p.url) }) }
     }
 }
 

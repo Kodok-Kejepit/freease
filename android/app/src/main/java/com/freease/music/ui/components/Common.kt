@@ -1,6 +1,15 @@
 package com.freease.music.ui.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -74,26 +83,38 @@ fun SectionHeader(
     }
 }
 
-/** Tiga batang equalizer beranimasi — penanda lagu yang sedang diputar. */
+/**
+ * Tiga batang equalizer — penanda lagu yang sedang diputar. Hanya beranimasi saat musik
+ * berputar, dan nilainya dibaca di fase gambar (tidak memicu recomposition tiap frame).
+ */
 @Composable
 fun PlayingBars(modifier: Modifier = Modifier, playing: Boolean = true, color: Color = Freease.accent.primary) {
-    val t = rememberInfiniteTransition(label = "bars")
-    val bars = listOf(420, 300, 520).mapIndexed { i, d ->
-        t.animateFloat(
-            initialValue = 0.25f, targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(d, delayMillis = i * 60, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "bar$i",
-        )
+    val levels = remember { List(3) { Animatable(0.35f) } }
+    LaunchedEffect(playing) {
+        if (!playing) {
+            levels.forEach { launch { it.animateTo(0.3f, tween(200)) } }
+            return@LaunchedEffect
+        }
+        listOf(420, 300, 520).forEachIndexed { i, d ->
+            launch {
+                delay(i * 60L)
+                while (true) {
+                    levels[i].animateTo(1f, tween(d, easing = FastOutSlowInEasing))
+                    levels[i].animateTo(0.25f, tween(d, easing = FastOutSlowInEasing))
+                }
+            }
+        }
     }
-    Row(modifier.size(16.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
-        bars.forEach { anim ->
-            val v by anim
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight(if (playing) v else 0.3f)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(color),
+    Canvas(modifier.size(16.dp)) {
+        val gap = 2.dp.toPx()
+        val w = (size.width - gap * 2) / 3
+        levels.forEachIndexed { i, a ->
+            val h = size.height * a.value
+            drawRoundRect(
+                color,
+                topLeft = Offset(i * (w + gap), size.height - h),
+                size = Size(w, h),
+                cornerRadius = CornerRadius(1.dp.toPx()),
             )
         }
     }

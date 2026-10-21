@@ -59,6 +59,12 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.freease.music.AppContainer
 import com.freease.music.ui.components.AddToPlaylistSheet
+import com.freease.music.ui.components.CrashReportDialog
+import com.freease.music.util.CrashReporter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.freease.music.ui.components.SongMenuSheet
 import com.freease.music.ui.components.rememberArtworkColor
 import com.freease.music.ui.navigation.AppActions
@@ -185,6 +191,17 @@ fun FreeaseRoot(container: AppContainer, onActionsReady: (AppActions) -> Unit) {
                     if (song != null) {
                         val color by rememberArtworkColor(song.artworkSmall, Freease.accent.primary)
                         LyricsScreen(song, color, onClose = { actions.showLyrics = false })
+                    }
+                }
+
+                var crashReport by remember { mutableStateOf<String?>(null) }
+                LaunchedEffect(Unit) {
+                    crashReport = withContext(Dispatchers.IO) { CrashReporter.pendingReport(context) }
+                }
+                crashReport?.let { report ->
+                    CrashReportDialog(report, "Freease sempat berhenti tiba-tiba") {
+                        CrashReporter.acknowledge(context)
+                        crashReport = null
                     }
                 }
 

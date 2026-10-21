@@ -85,10 +85,10 @@ import java.util.Locale
 @Composable
 fun LibraryScreen() {
     val actions = LocalActions.current
-    val playlists by actions.library.playlistSummaries().collectAsState(emptyList())
-    val artists by actions.library.followedArtists().collectAsState(emptyList())
-    val likedCount by actions.library.likedCount().collectAsState(0)
-    val downloads by actions.library.downloads().collectAsState(emptyList())
+    val playlists by remember { actions.library.playlistSummaries() }.collectAsState(emptyList())
+    val artists by remember { actions.library.followedArtists() }.collectAsState(emptyList())
+    val likedCount by remember { actions.library.likedCount() }.collectAsState(0)
+    val downloads by remember { actions.library.downloads() }.collectAsState(emptyList())
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var sortAz by rememberSaveable { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
@@ -233,7 +233,7 @@ private fun DownloadingRow(title: String, state: Int, progress: Float) {
 @Composable
 fun LikedScreen() {
     val actions = LocalActions.current
-    val songs by actions.library.liked().collectAsState(emptyList())
+    val songs by remember { actions.library.liked() }.collectAsState(emptyList())
     val total = songs.sumOf { it.durationSec }
     CollectionScreen(
         title = "Lagu yang Disukai",
@@ -258,7 +258,7 @@ fun LikedScreen() {
 @Composable
 fun DownloadsScreen() {
     val actions = LocalActions.current
-    val all by actions.library.downloads().collectAsState(emptyList())
+    val all by remember { actions.library.downloads() }.collectAsState(emptyList())
     val done = all.filter { it.downloadState == DownloadState.DONE }
     val pending = all.filter { it.downloadState != DownloadState.DONE }
     val bytes = done.sumOf { it.downloadBytes }
@@ -383,7 +383,7 @@ fun LocalPlaylistScreen(id: Long) {
 @Composable
 fun HistoryScreen() {
     val actions = LocalActions.current
-    val rows by actions.library.historyRows().collectAsState(emptyList())
+    val rows by remember { actions.library.historyRows() }.collectAsState(emptyList())
     var confirm by remember { mutableStateOf(false) }
     val grouped = remember(rows) { rows.groupBy { dayLabel(it.playedAt) } }
     val songs = remember(rows) { rows.map { it.song.toSong() } }

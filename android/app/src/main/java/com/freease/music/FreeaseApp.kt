@@ -12,6 +12,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowHardware
 import coil3.request.crossfade
 import com.freease.music.data.download.DownloadManager
+import com.freease.music.util.CrashReporter
 
 @UnstableApi
 class FreeaseApp : Application(), SingletonImageLoader.Factory {
@@ -20,6 +21,7 @@ class FreeaseApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        CrashReporter.install(this)
         container = AppContainer(this)
         DownloadManager.createChannel(this)
     }
@@ -27,7 +29,7 @@ class FreeaseApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
             .components { add(OkHttpNetworkFetcherFactory(callFactory = { container.httpClient })) }
-            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.20).build() }
+            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.15).build() }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("artwork"))

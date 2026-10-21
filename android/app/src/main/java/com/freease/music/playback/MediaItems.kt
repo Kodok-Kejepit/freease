@@ -71,9 +71,14 @@ object MediaItems {
 
     fun isLive(item: MediaItem) = item.mediaMetadata.extras?.getBoolean(EXTRA_LIVE) == true
 
+    /**
+     * Item video di timeline ExoPlayer adalah sub-item audio dari MergingMediaSource,
+     * jadi ditandai dengan parameter `v=1` (lihat [FreeaseMediaSourceFactory]).
+     */
     fun isVideo(item: MediaItem): Boolean {
         val uri = item.localConfiguration?.uri ?: return false
-        return uri.scheme == SCHEME && (uri.host == HOST_VIDEO || uri.host == HOST_LIVE)
+        return uri.scheme == SCHEME &&
+            (uri.host == HOST_VIDEO || uri.host == HOST_LIVE || uri.getQueryParameter("v") == "1")
     }
 
     /** Pasang URI yang bisa diputar oleh player di service. */

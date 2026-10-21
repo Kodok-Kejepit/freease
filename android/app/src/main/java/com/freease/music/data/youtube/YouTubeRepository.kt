@@ -12,6 +12,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.Image
@@ -88,10 +90,25 @@ class YouTubeRepository {
     private val yt = ServiceList.YouTube
     private val linkFactory = YoutubeStreamLinkHandlerFactory.getInstance()
 
-    private data class CachedInfo(val info: StreamInfo, val at: Long)
+    /**
+     * Hanya bagian StreamInfo yang dipakai (daftar stream + lagu terkait). Objek StreamInfo
+     * utuh jauh lebih besar; menyimpannya puluhan sekaligus membuat memori terus membengkak.
+     */
+    class StreamData(
+        val song: Song,
+        val audioStreams: List<AudioStream>,
+        val videoOnlyStreams: List<VideoStream>,
+        val hlsUrl: String?,
+        val related: List<Song>,
+        val at: Long = System.currentTimeMillis(),
+    )
 
-    private val infoCache = LruCache<String, CachedInfo>(64)
-    private val locks = LruCache<String, Mutex>(64)
+    private val infoCache = LruCache<String, StreamData>(24)
+    private val relatedCache = LruCache<String, List<Song>>(48)
+    private val locks = LruCache<String, Mutex>(32)
+
+    /** Ekstraksi penuh memakai mesin JS (Rhino) yang berat — batasi 2 sekaligus. */
+    private val extractionSlots = Semaphore(2)
 
     // ---------------------------------------------------------------- mapping
 
@@ -200,16 +217,25 @@ class YouTubeRepository {
         locks.get(id) ?: Mutex().also { locks.put(id, it) }
     }
 
-    /** StreamInfo di-cache ±4 jam (URL googlevideo berlaku ±6 jam). */
-    suspend fun streamInfo(id: String): StreamInfo = withContext(Dispatchers.IO) {
+    /** Data stream di-cache ±4 jam (URL googlevideo berlaku ±6 jam). */
+    suspend fun streamInfo(id: String): StreamData = withContext(Dispatchers.IO) {
         lockFor(id).withLock {
             val cached = infoCache.get(id)
             if (cached != null && System.currentTimeMillis() - cached.at < 4 * 3600_000L) {
-                return@withLock cached.info
+                return@withLock cached
             }
-            val info = StreamInfo.getInfo(yt, "https://www.youtube.com/watch?v=$id")
-            infoCache.put(id, CachedInfo(info, System.currentTimeMillis()))
-            info
+            val info = extractionSlots.withPermit { StreamInfo.getInfo(yt, "https://www.youtube.com/watch?v=$id") }
+            val related = songsOf(info.relatedItems)
+            val data = StreamData(
+                song = toSong(info),
+                audioStreams = info.audioStreams,
+                videoOnlyStreams = info.videoOnlyStreams,
+                hlsUrl = info.hlsUrl,
+                related = related,
+            )
+            infoCache.put(id, data)
+            relatedCache.put(id, related)
+            data
         }
     }
 
@@ -217,9 +243,9 @@ class YouTubeRepository {
         infoCache.remove(id)
     }
 
-    suspend fun song(id: String): Song = toSong(streamInfo(id))
+    suspend fun song(id: String): Song = streamInfo(id).song
 
-    fun pickAudio(info: StreamInfo, quality: AudioQuality): ResolvedStream? {
+    fun pickAudio(info: StreamData, quality: AudioQuality): ResolvedStream? {
         val candidates = info.audioStreams
             .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
             .filter { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
@@ -242,7 +268,7 @@ class YouTubeRepository {
         )
     }
 
-    fun pickVideo(info: StreamInfo, maxHeight: Int): ResolvedStream? {
+    fun pickVideo(info: StreamData, maxHeight: Int): ResolvedStream? {
         fun codecRank(v: VideoStream): Int {
             val c = v.codec?.lowercase() ?: ""
             return when {
@@ -265,10 +291,17 @@ class YouTubeRepository {
 
     // ---------------------------------------------------------------- browse
 
+    /**
+     * Lagu terkait. Kalau data stream belum ada di cache, cukup ambil halaman videonya saja
+     * tanpa mengurai semua URL stream (jauh lebih ringan untuk CPU & baterai).
+     */
     suspend fun related(id: String, limit: Int = 25): List<Song> = withContext(Dispatchers.IO) {
-        songsOf(streamInfo(id).relatedItems)
-            .filter { !it.isLive && it.durationSec in 60..900 }
-            .take(limit)
+        val all = relatedCache.get(id) ?: infoCache.get(id)?.related ?: run {
+            val ex = yt.getStreamExtractor("https://www.youtube.com/watch?v=$id")
+            ex.fetchPage()
+            songsOf(ex.relatedItems?.items ?: emptyList()).also { relatedCache.put(id, it) }
+        }
+        all.filter { !it.isLive && it.durationSec in 60..900 }.take(limit)
     }
 
     suspend fun trendingMusic(): List<Song> = withContext(Dispatchers.IO) {

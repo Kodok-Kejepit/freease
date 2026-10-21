@@ -187,7 +187,7 @@ fun SearchScreen() {
     val suggestions by vm.suggestions.collectAsState()
     val local by vm.localMatches.collectAsState()
     val results by vm.results.collectAsState()
-    val recentSearches by actions.library.recentSearches().collectAsState(emptyList())
+    val recentSearches by remember { actions.library.recentSearches() }.collectAsState(emptyList())
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val bottom = LocalBottomInset.current
@@ -405,8 +405,8 @@ private fun ResultsList(results: ResultsState, filter: SearchFilter, onMore: () 
             itemsIndexed(results.items, key = { i, r ->
                 when (r) {
                     is BrowseResult.SongResult -> "s_${r.song.id}_$i"
-                    is BrowseResult.PlaylistResult -> "p_${r.playlist.url}"
-                    is BrowseResult.ArtistResult -> "a_${r.artist.url}"
+                    is BrowseResult.PlaylistResult -> "p_${r.playlist.url}_$i"
+                    is BrowseResult.ArtistResult -> "a_${r.artist.url}_$i"
                 }
             }) { _, r ->
                 when (r) {

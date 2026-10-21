@@ -182,7 +182,7 @@ fun SongMenuSheet(request: SongMenuRequest, onDismiss: () -> Unit) {
 @Composable
 fun AddToPlaylistSheet(songs: List<Song>, onDismiss: () -> Unit) {
     val actions = LocalActions.current
-    val playlists by actions.library.playlistSummaries().collectAsState(emptyList())
+    val playlists by remember { actions.library.playlistSummaries() }.collectAsState(emptyList())
     val containing by remember(songs) {
         if (songs.size == 1) actions.library.playlistsContaining(songs[0].id) else flowOf(emptyList())
     }.collectAsState(emptyList())
@@ -323,5 +323,56 @@ fun ConfirmDialog(title: String, text: String, confirm: String, onDismiss: () ->
             TextButton(onClick = { onConfirm(); onDismiss() }) { Text(confirm, color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Batal", color = Freease.colors.muted) } },
+    )
+}
+
+/** Tampilkan laporan crash/ANR dengan opsi bagikan & salin. */
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+fun CrashReportDialog(report: String, title: String, onDismiss: () -> Unit) {
+    val actions = LocalActions.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Freease.colors.elevated,
+        title = { Text(title) },
+        text = {
+            Column {
+                Text(
+                    "Kirim laporan ini ke pengembang supaya penyebabnya bisa diperbaiki.",
+                    color = Freease.colors.muted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 260.dp)
+                        .background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                        .verticalScroll(rememberScrollState())
+                        .padding(10.dp),
+                ) {
+                    Text(
+                        report,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { actions.shareText(report); onDismiss() }) {
+                Text("Bagikan", color = Freease.accent.primary)
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(report))
+                    actions.toast("Laporan disalin")
+                }) { Text("Salin", color = Freease.colors.muted) }
+                TextButton(onClick = onDismiss) { Text("Tutup", color = Freease.colors.muted) }
+            }
+        },
     )
 }

@@ -68,6 +68,10 @@ class PlaybackService : MediaSessionService() {
     private var autoplayJob: Job? = null
     private var sleepFading = false
     private var lastSaveAt = 0L
+    private var tickerRunning = false
+
+    /** Jumlah lagu berturut-turut yang gagal diputar — rem supaya tidak loop tanpa henti. */
+    private var consecutiveFailures = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -94,8 +98,8 @@ class PlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setLoadControl(
                 DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(30_000, 180_000, 1_000, 2_500)
-                    .setPrioritizeTimeOverSizeThresholds(true)
+                    .setBufferDurationsMs(30_000, 120_000, 1_000, 2_500)
+                    .setPrioritizeTimeOverSizeThresholds(false)
                     .build(),
             )
             .setSeekBackIncrementMs(10_000)
@@ -130,7 +134,6 @@ class PlaybackService : MediaSessionService() {
         observeSleepTimer()
         observeLike()
         if (settings.resumeOnStart) restoreQueue()
-        handler.post(ticker)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
@@ -264,7 +267,12 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (!isPlaying) saveQueue()
+            if (isPlaying) {
+                consecutiveFailures = 0
+                startTicker()
+            } else {
+                saveQueue()
+            }
         }
 
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -280,7 +288,7 @@ class PlaybackService : MediaSessionService() {
             val networkish = error.errorCode in PlaybackException.ERROR_CODE_IO_UNSPECIFIED..PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE ||
                 error.errorCode in PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED..PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED
             val tries = retries[id] ?: 0
-            if ((http != null || networkish) && tries < 2) {
+            if ((http != null || networkish) && tries < 2 && consecutiveFailures < MAX_FAILURES) {
                 retries[id] = tries + 1
                 container.youtube.invalidate(id)
                 if (error.errorCode >= PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED) {
@@ -298,6 +306,13 @@ class PlaybackService : MediaSessionService() {
                 !container.isOnline() -> "Tidak ada koneksi internet"
                 else -> error.localizedMessage ?: "Gagal memutar"
             }
+            consecutiveFailures++
+            if (consecutiveFailures >= MAX_FAILURES || !container.isOnline()) {
+                // Kemungkinan masalah jaringan/YouTube, bukan lagunya — berhenti, jangan loop.
+                container.emitMessage("Pemutaran dihentikan: $reasonText. Coba lagi sebentar lagi.")
+                consecutiveFailures = 0
+                return
+            }
             container.emitMessage("Lewati \"${item.mediaMetadata.title}\": $reasonText")
             if (exo.hasNextMediaItem()) {
                 exo.seekToNextMediaItem()
@@ -309,29 +324,42 @@ class PlaybackService : MediaSessionService() {
 
     // ------------------------------------------------------------------ ticker
 
+    /**
+     * Penghitung waktu dengar + crossfade. Hanya jalan selama musik berputar; tiap 1 detik,
+     * dan 10×/detik hanya di detik-detik crossfade supaya volume berubah halus.
+     */
     private val ticker = object : Runnable {
         override fun run() {
-            val now = System.currentTimeMillis()
-            if (exo.isPlaying) {
-                if (lastTick > 0) listenedMs += (now - lastTick)
-                lastTick = now
-                updateCrossfade(now)
-            } else {
+            if (!exo.isPlaying) {
+                tickerRunning = false
                 lastTick = 0
+                return
             }
-            if (exo.isPlaying && now - lastSaveAt > 15_000) {
+            val now = System.currentTimeMillis()
+            if (lastTick > 0) listenedMs += (now - lastTick)
+            lastTick = now
+            val fading = updateCrossfade(now)
+            if (now - lastSaveAt > 30_000) {
                 lastSaveAt = now
                 saveQueue()
             }
-            handler.postDelayed(this, if (exo.isPlaying) 100 else 500)
+            handler.postDelayed(this, if (fading) 100 else 1000)
         }
     }
 
-    private fun updateCrossfade(now: Long) {
+    private fun startTicker() {
+        if (tickerRunning) return
+        tickerRunning = true
+        lastTick = System.currentTimeMillis()
+        handler.post(ticker)
+    }
+
+    /** @return true kalau sedang (atau hampir) dalam fase fade, supaya ticker dipercepat. */
+    private fun updateCrossfade(now: Long): Boolean {
         val cfMs = container.settings.current.crossfadeSec * 1000L
         if (cfMs <= 0 || exo.currentMediaItem?.let(MediaItems::isLive) == true) {
             if (mixer.crossfade != 1f) mixer.crossfade = 1f
-            return
+            return false
         }
         val inRamp = cfMs / 2
         val fadeIn = if (fadeInStartedAt > 0) ((now - fadeInStartedAt).toFloat() / inRamp).coerceIn(0f, 1f) else 1f
@@ -342,7 +370,10 @@ class PlaybackService : MediaSessionService() {
         ) {
             ((dur - exo.currentPosition).toFloat() / cfMs).coerceIn(0f, 1f)
         } else 1f
-        mixer.crossfade = minOf(fadeIn, fadeOut)
+        val value = minOf(fadeIn, fadeOut)
+        if (value != mixer.crossfade) mixer.crossfade = value
+        val nearEnd = dur != C.TIME_UNSET && dur - exo.currentPosition < cfMs + 1500
+        return fadeInStartedAt > 0 || nearEnd
     }
 
     private fun flushListening() {
@@ -359,8 +390,10 @@ class PlaybackService : MediaSessionService() {
     // ------------------------------------------------------------------ autoplay
 
     private fun maybeAutoplay() {
+        trimPlayedHistory()
         val s = container.settings.current
         if (!s.autoplay || exo.repeatMode != Player.REPEAT_MODE_OFF || exo.mediaItemCount == 0) return
+        if (exo.mediaItemCount >= MAX_QUEUE) return
         if (exo.currentMediaItemIndex < exo.mediaItemCount - 2) return
         if (autoplayJob?.isActive == true) return
         val seed = exo.currentMediaItem?.mediaId ?: return
@@ -374,6 +407,16 @@ class PlaybackService : MediaSessionService() {
             val items = preparePlayback(related.map(MediaItems::fromSong))
             exo.addMediaItems(items)
         }
+    }
+
+    /**
+     * Lagu yang sudah lewat jauh di belakang dibuang dari antrean (tetap ada di Riwayat),
+     * supaya antrean dari putar otomatis tidak tumbuh tanpa batas selama berjam-jam.
+     */
+    private fun trimPlayedHistory() {
+        val index = exo.currentMediaItemIndex
+        if (exo.shuffleModeEnabled || index < KEEP_BEHIND * 2) return
+        exo.removeMediaItems(0, index - KEEP_BEHIND)
     }
 
     // ------------------------------------------------------------------ queue persistence
@@ -478,5 +521,8 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val ACTION_LIKE = "freease.LIKE"
+        private const val MAX_FAILURES = 3
+        private const val MAX_QUEUE = 300
+        private const val KEEP_BEHIND = 30
     }
 }

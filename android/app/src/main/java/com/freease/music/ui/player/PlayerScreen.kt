@@ -63,6 +63,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -153,9 +154,7 @@ fun PlayerScreen(onCollapse: () -> Unit) {
                     }
                     TitleRow(song)
                     Spacer(Modifier.height(14.dp))
-                    val position by remember { actions.player.positionFlow(250) }.collectAsState(0L)
-                    val buffered by remember { actions.player.bufferedFlow() }.collectAsState(0L)
-                    SeekBar(position, state.durationMs, buffered, onSeek = actions.player::seekTo, live = song.isLive)
+                    SeekSection(state.durationMs, song.isLive)
                     Spacer(Modifier.height(6.dp))
                     Controls(state)
                     Spacer(Modifier.height(10.dp))
@@ -179,6 +178,16 @@ fun PlayerScreen(onCollapse: () -> Unit) {
     }
     if (showSleep) SleepTimerDialog { showSleep = false }
     if (showSpeed) SpeedDialog { showSpeed = false }
+}
+
+/** Satu-satunya bagian yang membaca posisi — jadi hanya ini yang digambar ulang tiap detik. */
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun SeekSection(durationMs: Long, live: Boolean) {
+    val actions = LocalActions.current
+    val position by remember { actions.player.positionFlow(250) }.collectAsStateWithLifecycle(0L)
+    val buffered by remember { actions.player.bufferedFlow() }.collectAsStateWithLifecycle(0L)
+    SeekBar(position, durationMs, buffered, onSeek = actions.player::seekTo, live = live)
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -349,7 +358,7 @@ private fun TitleRow(song: Song) {
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
-                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2500),
+                modifier = Modifier.basicMarquee(iterations = 3, initialDelayMillis = 2500),
             )
             Text(
                 song.artist,

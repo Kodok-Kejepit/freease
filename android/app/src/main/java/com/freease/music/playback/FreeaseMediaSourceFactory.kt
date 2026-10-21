@@ -73,7 +73,7 @@ class FreeaseMediaSourceFactory(
                 // Sumber pertama menentukan MediaItem di timeline → pakai item audio yang
                 // membawa metadata lagu, video-only sebagai sumber kedua.
                 val audioItem = mediaItem.buildUpon()
-                    .setUri(MediaItems.audioUri(id, q))
+                    .setUri(MediaItems.audioUri(id, q) + "&v=1")
                     .setCustomCacheKey(MediaItems.audioKey(id, q))
                     .build()
                 val videoItem = MediaItem.Builder()

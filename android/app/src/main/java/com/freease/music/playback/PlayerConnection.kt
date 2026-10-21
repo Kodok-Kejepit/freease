@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 
@@ -120,20 +121,24 @@ class PlayerConnection(
         _queue.value = (0 until p.mediaItemCount).map { QueueEntry(it, MediaItems.toSong(p.getMediaItemAt(it))) }
     }
 
-    /** Posisi putar diperbarui berkala selama ada yang mengamati. */
+    /**
+     * Posisi putar diperbarui berkala selama ada yang mengamati; melambat saat dijeda dan
+     * hanya memancarkan nilai baru kalau berubah (tidak memicu recomposition sia-sia).
+     */
     fun positionFlow(intervalMs: Long = 250): Flow<Long> = flow {
         while (true) {
-            emit(_controller.value?.currentPosition ?: 0L)
-            delay(intervalMs)
+            val c = _controller.value
+            emit(c?.currentPosition ?: 0L)
+            delay(if (c?.isPlaying == true) intervalMs else 1000)
         }
-    }
+    }.distinctUntilChanged()
 
     fun bufferedFlow(intervalMs: Long = 1000): Flow<Long> = flow {
         while (true) {
             emit(_controller.value?.bufferedPosition ?: 0L)
             delay(intervalMs)
         }
-    }
+    }.distinctUntilChanged()
 
     private val pending = ArrayList<(MediaController) -> Unit>()
 

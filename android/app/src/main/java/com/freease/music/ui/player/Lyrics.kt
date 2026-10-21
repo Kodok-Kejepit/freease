@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -83,7 +84,7 @@ fun currentLineIndex(lyrics: Lyrics, positionMs: Long): Int {
 fun LyricsCard(song: Song, color: Color, onExpand: () -> Unit, modifier: Modifier = Modifier) {
     val actions = LocalActions.current
     val load by rememberLyrics(song)
-    val position by remember { actions.player.positionFlow(200) }.collectAsState(0L)
+    val position by remember { actions.player.positionFlow(200) }.collectAsStateWithLifecycle(0L)
     Column(
         modifier
             .fillMaxWidth()
@@ -136,7 +137,7 @@ fun LyricsScreen(song: Song, color: Color, onClose: () -> Unit) {
     val actions = LocalActions.current
     BackHandler(onBack = onClose)
     val load by rememberLyrics(song)
-    val position by remember { actions.player.positionFlow(150) }.collectAsState(0L)
+    val position by remember { actions.player.positionFlow(150) }.collectAsStateWithLifecycle(0L)
     val bg by animateColorAsState(color, tween(600), label = "lyricsBg")
     val listState = rememberLazyListState()
     val density = LocalDensity.current

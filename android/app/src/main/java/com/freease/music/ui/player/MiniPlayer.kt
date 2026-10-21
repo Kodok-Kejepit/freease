@@ -1,6 +1,7 @@
 package com.freease.music.ui.player
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,12 +57,10 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
     val actions = LocalActions.current
     val state by actions.player.state.collectAsState()
     val song = state.song ?: return
-    val position by remember { actions.player.positionFlow(500) }.collectAsState(0L)
     val liked by remember(song.id) { actions.library.isLiked(song.id) }.collectAsState(false)
     val color by rememberArtworkColor(song.artworkSmall, Freease.colors.card)
     val offset = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
-    val progress = if (state.durationMs > 0) (position.toFloat() / state.durationMs).coerceIn(0f, 1f) else 0f
 
     Box(
         modifier
@@ -118,16 +118,18 @@ fun MiniPlayer(modifier: Modifier = Modifier) {
                 Icon(Icons.Rounded.SkipNext, "Berikutnya")
             }
         }
-        Box(
-            Modifier
-                .align(Alignment.BottomStart)
-                .padding(horizontal = 8.dp)
-                .fillMaxWidth()
-                .height(2.dp)
-                .clip(RoundedCornerShape(1.dp))
-                .background(Color.White.copy(alpha = 0.2f)),
-        ) {
-            Box(Modifier.fillMaxWidth(progress).height(2.dp).background(Color.White))
-        }
+        MiniProgress(state.durationMs, Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp))
+    }
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun MiniProgress(durationMs: Long, modifier: Modifier) {
+    val actions = LocalActions.current
+    val position by remember { actions.player.positionFlow(1000) }.collectAsStateWithLifecycle(0L)
+    Canvas(modifier.fillMaxWidth().height(2.dp)) {
+        val f = if (durationMs > 0) (position.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+        drawRect(Color.White.copy(alpha = 0.2f))
+        drawRect(Color.White, size = size.copy(width = size.width * f))
     }
 }

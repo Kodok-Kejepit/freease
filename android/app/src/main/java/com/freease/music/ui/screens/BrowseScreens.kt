@@ -227,7 +227,7 @@ fun ArtistScreen(url: String) {
                 ui.error != null -> item { ErrorState(ui.error!!, onRetry = { vm.load() }) }
                 page != null -> {
                     page.sections.forEach { section ->
-                        item(key = "sec_${section.title}") {
+                        item {
                             SectionHeader(section.title)
                             PlaylistCardRow(section.playlists)
                         }

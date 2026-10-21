@@ -126,7 +126,7 @@ fun StatsScreen() {
             item {
                 Text("Artis teratas", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = 16.dp, top = 28.dp, bottom = 8.dp))
             }
-            itemsIndexed(topArtists, key = { _, a -> "a_${a.artist}" }) { i, a ->
+            itemsIndexed(topArtists, key = { i, a -> "a_${a.artist}_$i" }) { i, a ->
                 Row(
                     Modifier.fillMaxWidth().clickable(enabled = a.artistUrl != null) { actions.openArtist(a.artistUrl) }
                         .padding(horizontal = 16.dp, vertical = 8.dp),

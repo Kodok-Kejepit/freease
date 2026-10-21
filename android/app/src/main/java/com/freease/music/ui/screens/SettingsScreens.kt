@@ -57,6 +57,8 @@ import com.freease.music.BuildConfig
 import com.freease.music.data.prefs.AudioQuality
 import com.freease.music.playback.EqInfo
 import com.freease.music.ui.components.ConfirmDialog
+import com.freease.music.ui.components.CrashReportDialog
+import com.freease.music.util.CrashReporter
 import com.freease.music.ui.components.FilterChipRow
 import com.freease.music.ui.navigation.LocalActions
 import com.freease.music.ui.navigation.LocalBottomInset
@@ -148,6 +150,8 @@ fun SettingsScreen() {
     val s by c.settings.flow.collectAsState()
     var dialog by remember { mutableStateOf<String?>(null) }
     var cacheBytes by remember { mutableLongStateOf(-1L) }
+    var crashReport by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(Unit) { cacheBytes = withContext(Dispatchers.IO) { runCatching { c.mediaCache.cacheSpace }.getOrDefault(0L) } }
 
@@ -229,10 +233,20 @@ fun SettingsScreen() {
         item { Item("Hapus riwayat pencarian", onClick = { scope.launch { actions.library.clearSearches(); actions.toast("Riwayat pencarian dihapus") } }) }
         item { Item("Hapus riwayat & statistik dengar", onClick = { dialog = "clearHistory" }) }
 
+        item {
+            Item("Laporan crash terakhir", "Untuk dikirim ke pengembang kalau app bermasalah", onClick = {
+                scope.launch {
+                    val r = withContext(Dispatchers.IO) { CrashReporter.latestReport(context) }
+                    if (r == null) actions.toast("Belum ada laporan crash 🎉") else crashReport = r
+                }
+            })
+        }
         item { Group("Tentang") }
         item { Item("Freease ${BuildConfig.VERSION_NAME}", "Pemutar musik pribadi tanpa iklan • by Kodok-Kejepit") }
         item { Item("Sumber data", "YouTube & YouTube Music (NewPipeExtractor) • Lirik: LRCLIB") }
     }
+
+    crashReport?.let { CrashReportDialog(it, "Laporan crash terakhir") { crashReport = null } }
 
     when (dialog) {
         "quality" -> ChoiceDialog(
