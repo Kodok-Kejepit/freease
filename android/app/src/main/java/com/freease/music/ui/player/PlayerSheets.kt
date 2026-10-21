@@ -1,0 +1,261 @@
+package com.freease.music.ui.player
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.media3.common.util.UnstableApi
+import com.freease.music.data.model.Thumbs
+import com.freease.music.ui.components.Artwork
+import com.freease.music.ui.components.PlayingBars
+import com.freease.music.ui.navigation.LocalActions
+import com.freease.music.ui.theme.Freease
+import com.freease.music.util.Format
+import kotlinx.coroutines.delay
+import java.util.Locale
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun QueueSheet(onDismiss: () -> Unit) {
+    val actions = LocalActions.current
+    val queue by actions.player.queue.collectAsState()
+    val state by actions.player.state.collectAsState()
+    val settings by actions.container.settings.flow.collectAsState()
+    val from by actions.player.playingFrom.collectAsState()
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = (state.index).coerceAtLeast(0))
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet, containerColor = Freease.colors.elevated) {
+        Column(Modifier.fillMaxHeight(0.92f).navigationBarsPadding()) {
+            Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Antrean", style = MaterialTheme.typography.titleLarge)
+                    if (from.isNotBlank()) Text("Diputar dari $from", style = MaterialTheme.typography.bodySmall, color = Freease.colors.muted)
+                }
+                TextButton(onClick = { actions.player.clearUpcoming() }) { Text("Bersihkan", color = Freease.colors.muted) }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(10.dp)).background(Freease.colors.card).padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Putar otomatis", style = MaterialTheme.typography.titleSmall)
+                    Text("Lanjutkan dengan lagu serupa saat antrean habis", style = MaterialTheme.typography.bodySmall, color = Freease.colors.muted)
+                }
+                Switch(
+                    checked = settings.autoplay,
+                    onCheckedChange = { actions.container.settings.setAutoplay(it) },
+                    colors = SwitchDefaults.colors(checkedTrackColor = Freease.accent.primary),
+                )
+            }
+            LazyColumn(state = listState) {
+                items(queue, key = { "${it.index}_${it.song.id}" }) { entry ->
+                    val current = entry.index == state.index
+                    val past = entry.index < state.index
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = { actions.player.skipTo(entry.index) },
+                                onLongClick = { actions.showMenu(entry.song, queueIndex = entry.index) },
+                            )
+                            .background(if (current) Freease.accent.primary.copy(alpha = 0.14f) else Color.Transparent)
+                            .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box {
+                            Artwork(entry.song.artworkSmall, Modifier.size(48.dp), fallback = Thumbs.fallback(entry.song.id), shape = RoundedCornerShape(6.dp))
+                            if (current) {
+                                Box(Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                                    PlayingBars(playing = state.isPlaying, color = Color.White)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                entry.song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
+                                color = when {
+                                    current -> Freease.accent.primary
+                                    past -> Color.White.copy(alpha = 0.45f)
+                                    else -> Color.White
+                                },
+                            )
+                            Text(
+                                entry.song.artist + if (entry.song.durationSec > 0) " • ${Format.duration(entry.song.durationSec)}" else "",
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall, color = Freease.colors.muted,
+                            )
+                        }
+                        if (!current) {
+                            IconButton(onClick = { if (entry.index > 0) actions.player.move(entry.index, entry.index - 1) }) {
+                                Icon(Icons.Rounded.KeyboardArrowUp, "Naik", tint = Freease.colors.muted)
+                            }
+                            IconButton(onClick = { if (entry.index < queue.lastIndex) actions.player.move(entry.index, entry.index + 1) }) {
+                                Icon(Icons.Rounded.KeyboardArrowDown, "Turun", tint = Freease.colors.muted)
+                            }
+                            IconButton(onClick = { actions.player.remove(entry.index) }) {
+                                Icon(Icons.Rounded.Close, "Hapus", tint = Freease.colors.muted)
+                            }
+                        } else {
+                            Icon(Icons.Rounded.DragHandle, null, tint = Color.Transparent, modifier = Modifier.padding(12.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+fun SleepTimerDialog(onDismiss: () -> Unit) {
+    val actions = LocalActions.current
+    val timer = actions.container.sleepTimer
+    val st by timer.state.collectAsState()
+    var now by remember { mutableFloatStateOf(System.currentTimeMillis().toFloat()) }
+    LaunchedEffect(st) {
+        while (st.endsAt != null) {
+            now = System.currentTimeMillis().toFloat()
+            delay(1000)
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Freease.colors.elevated,
+        title = { Text("Timer tidur") },
+        text = {
+            Column {
+                if (st.active) {
+                    val remaining = st.endsAt?.let { ((it - now.toLong()) / 1000).coerceAtLeast(0) }
+                    Text(
+                        if (st.endOfTrack) "Berhenti setelah lagu ini selesai" else "Berhenti dalam ${Format.duration(remaining ?: 0)}",
+                        color = Freease.accent.primary,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+                listOf(5, 10, 15, 30, 45, 60, 90).forEach { m ->
+                    Text(
+                        "$m menit",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                            .clickable { timer.start(m); actions.toast("Musik berhenti dalam $m menit"); onDismiss() }
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                    )
+                }
+                Text(
+                    "Akhir lagu ini",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                        .clickable { timer.endOfTrack(); actions.toast("Berhenti setelah lagu ini"); onDismiss() }
+                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                )
+            }
+        },
+        confirmButton = {
+            if (st.active) TextButton(onClick = { timer.cancel(); onDismiss() }) { Text("Matikan timer", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Tutup", color = Freease.colors.muted) } },
+    )
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+fun SpeedDialog(onDismiss: () -> Unit) {
+    val actions = LocalActions.current
+    val state by actions.player.state.collectAsState()
+    var speed by remember { mutableFloatStateOf(state.speed) }
+    var pitch by remember { mutableFloatStateOf(state.pitch) }
+    val sliderColors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Freease.accent.primary)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Freease.colors.elevated,
+        title = { Text("Kecepatan & nada") },
+        text = {
+            Column {
+                Text("Kecepatan ${String.format(Locale.US, "%.2fx", speed)}", style = MaterialTheme.typography.titleSmall)
+                Slider(
+                    value = speed, onValueChange = { speed = (it * 20).toInt() / 20f },
+                    valueRange = 0.5f..2f, colors = sliderColors,
+                    onValueChangeFinished = { actions.player.setPlaybackParameters(speed, pitch) },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(0.75f, 1f, 1.25f, 1.5f).forEach { v ->
+                        Box(
+                            Modifier.clip(CircleShape)
+                                .background(if (speed == v) Freease.accent.primary else Freease.colors.card)
+                                .clickable { speed = v; actions.player.setPlaybackParameters(v, pitch) }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        ) { Text("${v}x", style = MaterialTheme.typography.labelMedium) }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Text("Nada ${String.format(Locale.US, "%.2f", pitch)}", style = MaterialTheme.typography.titleSmall)
+                Slider(
+                    value = pitch, onValueChange = { pitch = (it * 20).toInt() / 20f },
+                    valueRange = 0.5f..2f, colors = sliderColors,
+                    onValueChangeFinished = { actions.player.setPlaybackParameters(speed, pitch) },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { speed = 1f; pitch = 1f; actions.player.setPlaybackParameters(1f, 1f) }) {
+                Text("Normal", color = Freease.accent.primary)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Tutup", color = Freease.colors.muted) } },
+    )
+}
