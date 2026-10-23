@@ -424,7 +424,12 @@ class PlaybackService : MediaLibraryService() {
     private fun observeSettings() {
         scope.launch {
             var lastMood: String? = null
+            var lastSmartShuffle: Boolean? = null
             container.settings.flow.collect { s ->
+                if (lastSmartShuffle != null && lastSmartShuffle != s.smartShuffle) {
+                    if (s.smartShuffle) maybeSmart() else if (!s.smartMode) dropSmartAhead()
+                }
+                lastSmartShuffle = s.smartShuffle
                 exo.skipSilenceEnabled = s.skipSilence
                 applyNormalizer(s)
                 container.effects.apply(s)
@@ -552,6 +557,11 @@ class PlaybackService : MediaLibraryService() {
                 maybeAutoplay()
                 saveQueue()
             }
+        }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            if (!container.settings.current.smartShuffle) return
+            if (shuffleModeEnabled) maybeSmart() else if (!container.settings.current.smartMode) dropSmartAhead()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -730,7 +740,7 @@ class PlaybackService : MediaLibraryService() {
 
     private fun maybeAutoplay() {
         trimPlayedHistory()
-        if (container.settings.current.smartMode) {
+        if (smartActive()) {
             maybeSmart()
             return
         }
@@ -775,9 +785,24 @@ class PlaybackService : MediaLibraryService() {
      * antrean ke depan, dan melanjutkan sebagai radio pintar saat antrean hampir habis.
      * Hanya satu permintaan dalam satu waktu, maksimal 3 sisipan di depan.
      */
+    /** Smart Shuffle aktif = mode acak + pilihan Smart Shuffle di tombol acak. */
+    private fun smartShuffleOn() = container.settings.current.smartShuffle && exo.shuffleModeEnabled
+
+    private fun smartActive() = container.settings.current.smartMode || smartShuffleOn()
+
+    /** Smart Shuffle dimatikan: buang rekomendasi yang belum diputar. */
+    private fun dropSmartAhead() {
+        smartJob?.cancel()
+        smartRetryAt = 0
+        val index = exo.currentMediaItemIndex
+        for (i in exo.mediaItemCount - 1 downTo 0) {
+            if (i != index && MediaItems.isSmart(exo.getMediaItemAt(i))) exo.removeMediaItem(i)
+        }
+    }
+
     private fun maybeSmart() {
         val s = container.settings.current
-        if (!s.smartMode || exo.mediaItemCount == 0 || exo.repeatMode != Player.REPEAT_MODE_OFF) return
+        if (!smartActive() || exo.mediaItemCount == 0 || exo.repeatMode != Player.REPEAT_MODE_OFF) return
         if (exo.currentMediaItem?.let(MediaItems::isLive) == true || exo.mediaItemCount >= MAX_QUEUE) return
         if (smartJob?.isActive == true || System.currentTimeMillis() < smartRetryAt) return
 
@@ -801,7 +826,13 @@ class PlaybackService : MediaLibraryService() {
             insertAt = exo.mediaItemCount
             count = 3
         } else if (smartAhead < 3) {
-            if (exo.shuffleModeEnabled) {
+            if (smartShuffleOn()) {
+                // Kira-kira 1 rekomendasi tiap 3 lagu; ExoPlayer menyebarkan item baru ke posisi acak.
+                val want = (order.size / 3).coerceIn(1, 3)
+                if (smartAhead >= want) return
+                insertAt = exo.mediaItemCount
+                count = (want - smartAhead).coerceAtMost(2)
+            } else if (exo.shuffleModeEnabled) {
                 // Urutan acak tidak bisa ditentukan posisinya; cukup pastikan selalu ada satu di depan.
                 if (smartAhead >= 1) return
                 insertAt = exo.mediaItemCount
@@ -827,8 +858,9 @@ class PlaybackService : MediaLibraryService() {
         val snapshot = (0 until exo.mediaItemCount).map { MediaItems.toSong(exo.getMediaItemAt(it)) }
         val index = exo.currentMediaItemIndex
         val anchorId = exo.currentMediaItem?.mediaId
+        val playlistWide = smartShuffleOn() && mood == null
         smartJob = scope.launch {
-            val picks = runCatching { container.smart.pick(snapshot, index, count, mood) }.getOrDefault(emptyList())
+            val picks = runCatching { container.smart.pick(snapshot, index, count, mood, playlistWide) }.getOrDefault(emptyList())
             if (picks.isEmpty()) {
                 moodKick = false
                 smartRetryAt = System.currentTimeMillis() + 20_000

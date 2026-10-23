@@ -55,6 +55,7 @@ import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Speed
@@ -461,12 +462,39 @@ private fun Controls(state: PlayerState) {
     val actions = LocalActions.current
     val accent = Freease.accent
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        IconButton(onClick = actions.player::toggleShuffle) {
-            Icon(
-                Icons.Rounded.Shuffle, "Acak",
-                tint = if (state.shuffle) accent.primary else Color.White.copy(alpha = 0.85f),
-                modifier = Modifier.size(26.dp),
-            )
+        val settings by actions.container.settings.flow.collectAsState()
+        val smartShuffle = state.shuffle && settings.smartShuffle
+        // Mati → Acak → Smart Shuffle → mati.
+        IconButton(onClick = {
+            val c = actions.container
+            when {
+                !state.shuffle -> {
+                    c.settings.setSmartShuffle(false)
+                    actions.player.toggleShuffle()
+                }
+                !settings.smartShuffle -> {
+                    c.settings.setSmartShuffle(true)
+                    c.emitMessage("Smart Shuffle: lagu rekomendasi yang cocok dengan playlist ini diselipkan")
+                }
+                else -> {
+                    c.settings.setSmartShuffle(false)
+                    actions.player.toggleShuffle()
+                }
+            }
+        }) {
+            Box {
+                Icon(
+                    Icons.Rounded.Shuffle, if (smartShuffle) "Smart Shuffle" else "Acak",
+                    tint = if (state.shuffle) accent.primary else Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(26.dp),
+                )
+                if (smartShuffle) {
+                    Icon(
+                        Icons.Rounded.AutoAwesome, null, tint = accent.primary,
+                        modifier = Modifier.size(12.dp).align(Alignment.TopEnd).offset(x = 6.dp, y = (-4).dp),
+                    )
+                }
+            }
         }
         IconButton(onClick = actions.player::previous, modifier = Modifier.size(56.dp)) {
             Icon(Icons.Rounded.SkipPrevious, "Sebelumnya", modifier = Modifier.size(42.dp))

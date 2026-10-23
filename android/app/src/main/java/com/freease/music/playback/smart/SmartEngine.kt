@@ -57,7 +57,13 @@ class SmartEngine(
      * Pilih [n] lagu untuk disisipkan. [queue] adalah antrean sekarang (urutan timeline) dan
      * [currentIndex] posisi lagu yang sedang diputar.
      */
-    suspend fun pick(queue: List<Song>, currentIndex: Int, n: Int, mood: SmartMood? = null): List<Song> = withContext(Dispatchers.Default) {
+    suspend fun pick(
+        queue: List<Song>,
+        currentIndex: Int,
+        n: Int,
+        mood: SmartMood? = null,
+        playlistWide: Boolean = false,
+    ): List<Song> = withContext(Dispatchers.Default) {
         val current = queue.getOrNull(currentIndex) ?: return@withContext emptyList()
         val profile = profile()
 
@@ -68,8 +74,14 @@ class SmartEngine(
             val prev = queue.getOrNull(currentIndex - k) ?: continue
             if (!prev.isLive) seeds.putIfAbsent(prev.id, prev to (if (k == 1) 0.7 else 0.5))
         }
-        profile.liked.filter { it.id !in seeds && it.artist != current.artist }.randomOrNull()
-            ?.let { seeds[it.id] = it to 0.6 }
+        if (playlistWide) {
+            // Smart Shuffle: rekomendasi mewakili seluruh playlist, bukan hanya lagu yang kebetulan sedang diputar.
+            queue.filter { !it.isSmartPick && !it.isLive && it.id !in seeds && !it.isLocal }.shuffled().take(3)
+                .forEach { seeds[it.id] = it to 0.8 }
+        } else {
+            profile.liked.filter { it.id !in seeds && it.artist != current.artist }.randomOrNull()
+                ?.let { seeds[it.id] = it to 0.6 }
+        }
 
         val related = coroutineScope {
             seeds.values.map { (song, weight) ->
