@@ -13,8 +13,8 @@ android {
         applicationId = "com.freease.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.2.0"
+        versionCode = 10
+        versionName = "1.3.0"
         vectorDrawables.useSupportLibrary = true
         // Hanya sertakan resource bahasa yang dipakai (library AndroidX/Material membawa puluhan bahasa).
         androidResources.localeFilters += setOf("en", "id")

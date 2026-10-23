@@ -10,17 +10,24 @@ YouTube & YouTube Music. Native Android: **Kotlin + Jetpack Compose + Media3 (Ex
 - Jalan di latar belakang: notifikasi media, layar kunci, tombol headset/Bluetooth, tombol ❤ di notifikasi
 - Fade halus saat play/pause (tanpa bunyi "klik"), crossfade 0–12 detik, gapless
 - Equalizer bawaan (preset + band manual), bass boost, virtualizer 3D, penguat volume; juga terbuka untuk EQ sistem (Dolby, dll.)
+- **Profil EQ per perangkat**: speaker HP, headset kabel, DAC USB, dan tiap perangkat Bluetooth punya setelan sendiri, berganti otomatis
+- **Normalisasi volume** (LUFS, ITU-R BS.1770) dengan limiter: lagu pelan & keras terdengar sama; level Pelan/Normal/Keras
 - Lewati bagian hening, kecepatan & nada (0,5×–2×), timer tidur (menit / akhir lagu) dengan fade-out
 - Cache streaming (lagu yang pernah diputar tidak diunduh ulang), buffer besar supaya tidak putus-putus
 - Mode **Lagu ↔ Video** di player yang sama (video HD sampai 1080p + audio terbaik), layar penuh, siaran LIVE (HLS)
 - Antrean lengkap: putar berikutnya, tambah ke antrean, geser urutan, hapus; putar otomatis lagu serupa saat antrean habis; "Radio lagu"
 - Antrean terakhir disimpan & dilanjutkan saat app dibuka lagi
+- **Musik di HP**: putar MP3/FLAC/M4A yang tersimpan di HP, lengkap dengan sampul album
+- **Android Auto** (jelajah koleksi, cari, putar dari layar mobil) + **Mode Mobil** dengan tombol besar & cari pakai suara
+- **Alarm musik**: bangun dengan lagu dari playlist pilihan, volume naik perlahan, tunda 10 menit;
+  kalau internet mati memakai unduhan/musik di HP, atau nada alarm bawaan
 
 **Jelajah**
 - Beranda: sapaan, pintasan, Pilihan cepat (dari lagu yang kamu dengar), Baru diputar, Trending musik, lagu dari artis yang diikuti, playlist "Karena kamu mendengarkan …", tangga lagu, kategori suasana
 - Cari: saran otomatis, riwayat pencarian, filter Lagu / Video / Album / Playlist / Artis, scroll tanpa batas, tempel link YouTube langsung
 - Halaman artis (ikuti, radio artis, album & playlist), halaman playlist/album (simpan ke koleksi, unduh semua)
 - Bagikan link YouTube ke Freease dari aplikasi lain → langsung diputar
+- **Impor playlist Spotify**: tempel/bagikan link playlist atau album Spotify → tiap lagu dicarikan versi YouTube-nya (maks. 100 lagu per link)
 
 **Koleksi**
 - Lagu yang Disukai, playlist buatan sendiri (sampul mozaik, ubah nama, sematkan, urutkan, hapus), artis yang diikuti
@@ -31,6 +38,9 @@ YouTube & YouTube Music. Native Android: **Kotlin + Jetpack Compose + Media3 (Ex
 - **Sinkron lirik otomatis untuk video klip**: waktu lirik dibuat untuk versi lagu, jadi Freease
   mencocokkan suara video dengan suara versi lagunya (intro, adegan sisipan, bagian terpotong ikut
   terdeteksi) lalu menggeser tiap baris ke waktu yang pas. Sekali per video (±1,5 MB), hasilnya disimpan.
+- **Lirik karaoke per kata** (kalau tersedia lirik berwaktu per kata), **cara baca latin** untuk lirik Korea & Jepang
+- **Kartu lirik**: pilih sampai 6 baris → gambar siap dibagikan ke Instagram/WhatsApp (4 gaya warna)
+- **Lirik melayang** di atas aplikasi lain + **lirik di layar kunci** (notifikasi)
 
 **Tampilan**
 - Tema gelap dengan 6 warna aksen (Aurora, Mint, Sunset, Ocean, Lime, Rose), mode AMOLED
@@ -54,9 +64,11 @@ dan bisa langsung di-build; silakan sesuaikan (applicationId, signing, versi) se
 
 ```
 app/src/main/java/com/freease/music/
-├── data/          model, Room DB, YouTube (NewPipeExtractor), lirik, pengaturan, unduhan
-├── playback/      PlaybackService (MediaSessionService), resolver stream, cache,
-│                  equalizer, fade/crossfade, timer tidur, PlayerConnection (sisi UI)
+├── data/          model, Room DB, YouTube (NewPipeExtractor), lirik, pengaturan, unduhan,
+│                  impor Spotify, musik lokal, alarm
+├── playback/      PlaybackService (MediaLibraryService + Android Auto), resolver stream, cache,
+│                  equalizer & profil per perangkat, normalisasi volume, fade/crossfade,
+│                  timer tidur, lirik melayang, PlayerConnection (sisi UI)
 └── ui/            tema, komponen, layar (Beranda, Cari, Koleksi, Artis, Playlist,
                    Statistik, Pengaturan, Equalizer), player (full, mini, lirik, antrean)
 ```
