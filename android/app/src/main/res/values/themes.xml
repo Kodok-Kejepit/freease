@@ -5,4 +5,20 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <!-- Tombol pintasan di widget Lanjutkan -->
+    <style name="WidgetTile">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">bottom|start</item>
+        <item name="android:maxLines">2</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+        <item name="android:textColor">#FFFFFFFF</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
 </resources>

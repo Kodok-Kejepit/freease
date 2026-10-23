@@ -11,10 +11,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import com.freease.music.data.youtube.YouTubeRepository
 import com.freease.music.ui.FreeaseRoot
 import com.freease.music.ui.navigation.AppActions
+import kotlinx.coroutines.launch
 
 @UnstableApi
 class MainActivity : ComponentActivity() {
@@ -74,6 +76,16 @@ class MainActivity : ComponentActivity() {
             a.playerExpanded = true
             return
         }
+        if (intent.getBooleanExtra(EXTRA_OPEN_LYRICS, false)) {
+            a.playerExpanded = true
+            a.showLyrics = true
+            return
+        }
+        intent.getStringExtra(EXTRA_PLAY_SOURCE)?.let { source ->
+            intent.removeExtra(EXTRA_PLAY_SOURCE)
+            playSource(a, source)
+            return
+        }
         if (intent.getBooleanExtra(EXTRA_RECOGNIZE, false)) {
             a.navigate(com.freease.music.ui.navigation.Routes.recognize(auto = true))
             return
@@ -94,7 +106,48 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Pintasan widget "Lanjutkan": putar sumber lagu lalu buka player. */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun playSource(a: com.freease.music.ui.navigation.AppActions, source: String) {
+        if (source == com.freease.music.widget.ContinueWidget.SOURCE_RESUME) {
+            val c = a.player.controller.value
+            if (c != null && c.mediaItemCount > 0) {
+                c.play()
+            } else {
+                startService(
+                    Intent(this, com.freease.music.playback.PlaybackService::class.java)
+                        .setAction(com.freease.music.playback.PlaybackService.ACTION_WIDGET)
+                        .putExtra(com.freease.music.playback.PlaybackService.EXTRA_CMD, "toggle"),
+                )
+            }
+            a.playerExpanded = true
+            return
+        }
+        lifecycleScope.launch {
+            val (songs, label) = if (source.startsWith("mix:")) {
+                container.dailyMix.ensureFresh()
+                val mix = container.dailyMix.mixes.value.getOrNull(source.removePrefix("mix:").toIntOrNull() ?: 0)
+                (mix?.songs.orEmpty()) to (mix?.title ?: "Daily Mix")
+            } else {
+                com.freease.music.playback.LibraryTree(container).songsOf(source) to when (source) {
+                    com.freease.music.playback.LibraryTree.LIKED -> "Lagu yang Disukai"
+                    com.freease.music.playback.LibraryTree.RECENT -> "Baru diputar"
+                    com.freease.music.playback.LibraryTree.DOWNLOADS -> "Unduhan"
+                    else -> "Playlist"
+                }
+            }
+            if (songs.isEmpty()) {
+                a.toast("Belum ada lagu di $label")
+                return@launch
+            }
+            a.player.play(songs, shuffle = source == com.freease.music.playback.LibraryTree.LIKED, from = label)
+            a.playerExpanded = true
+        }
+    }
+
     companion object {
+        const val EXTRA_OPEN_LYRICS = "open_lyrics"
+        const val EXTRA_PLAY_SOURCE = "play_source"
         const val EXTRA_OPEN_PLAYER = "open_player"
         const val EXTRA_OPEN_ALARMS = "open_alarms"
         const val EXTRA_RECOGNIZE = "recognize"

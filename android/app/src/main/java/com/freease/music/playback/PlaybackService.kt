@@ -53,6 +53,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
@@ -233,7 +234,32 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /** Kirim judul/artis/sampul/status ke widget — dilewati sepenuhnya kalau tidak ada widget. */
+    private var continueJob: Job? = null
+
+    /** Pintasan widget "Lanjutkan" mengikuti lagu terakhir, Daily Mix, dan playlist teratas. */
+    private fun updateContinueWidget() {
+        if (!com.freease.music.widget.ContinueWidget.hasWidgets(this)) return
+        val song = exo.currentMediaItem?.let(MediaItems::toSong)
+        continueJob?.cancel()
+        continueJob = scope.launch {
+            val playlist = withContext(Dispatchers.IO) {
+                runCatching { container.library.playlistSummaries().first().firstOrNull() }.getOrNull()
+            }
+            val mix = container.dailyMix.mixes.value.firstOrNull()
+            val tiles = listOfNotNull(
+                com.freease.music.widget.ContinueWidget.Tile("▶  " + (song?.title ?: "Lanjutkan"), com.freease.music.widget.ContinueWidget.SOURCE_RESUME),
+                com.freease.music.widget.ContinueWidget.Tile("♥  Lagu yang Disukai", LibraryTree.LIKED),
+                mix?.let { com.freease.music.widget.ContinueWidget.Tile("✦  ${it.title}", "mix:0") }
+                    ?: com.freease.music.widget.ContinueWidget.Tile("✦  Baru diputar", LibraryTree.RECENT),
+                playlist?.let { com.freease.music.widget.ContinueWidget.Tile("≡  ${it.name}", "${LibraryTree.PLAYLIST_PREFIX}${it.id}") }
+                    ?: com.freease.music.widget.ContinueWidget.Tile("⬇  Unduhan", LibraryTree.DOWNLOADS),
+            )
+            com.freease.music.widget.ContinueWidget.push(applicationContext, tiles)
+        }
+    }
+
     private fun updateWidget() {
+        updateContinueWidget()
         if (!PlayerWidget.hasWidgets(this)) return
         widgetJob?.cancel()
         val song = exo.currentMediaItem?.let(MediaItems::toSong)

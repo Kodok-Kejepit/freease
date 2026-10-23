@@ -66,6 +66,8 @@ class LyricsDisplay(
     private var nextView: TextView? = null
     private val nm = NotificationManagerCompat.from(context)
     private var notifShown = false
+    /** Ada widget lirik di layar utama (dicek ulang tiap lagu/pengaturan berubah — murah). */
+    private var widget = false
 
     fun start() {
         createChannel()
@@ -86,8 +88,9 @@ class LyricsDisplay(
                 val notif = a[1] as Boolean
                 val visible = a[2] as Boolean
                 val cur = a[4] as Song?
+                widget = com.freease.music.widget.LyricsWidget.hasWidgets(context)
                 // Butuh lirik → pastikan dicari (juga saat layar lirik di app tidak dibuka).
-                if ((floating || notif) && cur != null) container.lyrics.ensure(cur)
+                if ((floating || notif || widget) && cur != null) container.lyrics.ensure(cur)
                 val wantOverlay = floating && !visible && cur != null && canDrawOverlays()
                 if (wantOverlay) showOverlay() else hideOverlay()
                 if (!notif || cur == null) cancelNotification()
@@ -107,7 +110,7 @@ class LyricsDisplay(
 
     private fun active(): Boolean {
         val s = container.settings.current
-        return (overlay != null) || (s.lyricsNotification && song.value != null)
+        return (overlay != null) || ((s.lyricsNotification || widget) && song.value != null)
     }
 
     /** Ticker hanya hidup selama ada yang perlu ditampilkan dan lagu berputar. */
@@ -139,6 +142,13 @@ class LyricsDisplay(
             ?: if (lines == null) cur.artist else ""
         lineView?.text = now
         nextView?.text = next
+        if (widget) {
+            com.freease.music.widget.LyricsWidget.push(
+                context, "${cur.title} • ${cur.artist}",
+                if (lines == null) "Lirik tidak tersedia" else now,
+                if (lines == null) "" else next,
+            )
+        }
         nextView?.visibility = if (next.isEmpty()) View.GONE else View.VISIBLE
         if (container.settings.current.lyricsNotification && lines != null && playing.value) {
             postNotification(cur, now, next)

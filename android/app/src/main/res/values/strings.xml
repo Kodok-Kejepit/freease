@@ -7,4 +7,10 @@
     <string name="widget_prev">Sebelumnya</string>
     <string name="widget_play">Putar atau jeda</string>
     <string name="widget_next">Berikutnya</string>
+    <string name="widget_lyrics_name">Lirik Freease</string>
+    <string name="widget_lyrics_description">Lirik lagu yang sedang diputar, baris demi baris</string>
+    <string name="widget_lyrics_idle">Lirik akan muncul di sini</string>
+    <string name="widget_continue_name">Lanjutkan Freease</string>
+    <string name="widget_continue_description">Pintasan ke antrean terakhir, lagu disukai, Daily Mix, dan playlist</string>
+    <string name="widget_continue_header">Lanjutkan mendengarkan</string>
 </resources>
