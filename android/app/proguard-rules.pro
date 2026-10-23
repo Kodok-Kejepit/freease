@@ -13,3 +13,14 @@
 
 # Room entities/DAO aman secara default; jaga nama kolom untuk migrasi.
 -keep class com.freease.music.data.db.** { *; }
+
+# --- Pengecilan ukuran ---
+-repackageclasses ''
+-allowaccessmodification
+-optimizationpasses 5
+-dontwarn kotlinx.coroutines.debug.**
+# Buang log debug di rilis.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+}

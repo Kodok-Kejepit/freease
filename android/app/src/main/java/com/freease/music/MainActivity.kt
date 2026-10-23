@@ -46,6 +46,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.action == android.view.MotionEvent.ACTION_DOWN) container.touchInteraction()
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun onStart() {
         super.onStart()
         container.player.connect()

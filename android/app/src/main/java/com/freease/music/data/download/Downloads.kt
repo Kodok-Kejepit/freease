@@ -35,7 +35,7 @@ class DownloadManager(private val context: Context, private val scope: Coroutine
     private val app get() = context.applicationContext as FreeaseApp
     private val wm get() = WorkManager.getInstance(context)
 
-    fun download(songs: List<Song>) = scope.launch {
+    fun download(songs: List<Song>, unmeteredOnly: Boolean = false) = scope.launch {
         val c = app.container
         songs.filter { !it.isLive }.forEach { song ->
             c.library.save(song)
@@ -43,7 +43,7 @@ class DownloadManager(private val context: Context, private val scope: Coroutine
             if (existing?.downloadState == DownloadState.DONE && existing.downloadPath?.let { File(it).exists() } == true) return@forEach
             c.db.songs().setDownloadState(song.id, DownloadState.QUEUED, 0f)
             val constraints = Constraints.Builder()
-                .setRequiredNetworkType(if (c.settings.current.downloadWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
+                .setRequiredNetworkType(if (unmeteredOnly || c.settings.current.downloadWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
                 .build()
             val req = OneTimeWorkRequestBuilder<DownloadWorker>()
                 .setConstraints(constraints)
@@ -117,6 +117,8 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
             }
             if (!tmp.renameTo(dest)) error("Gagal menyimpan berkas")
             dao.setDownloaded(id, DownloadState.DONE, dest.absolutePath, total)
+            // Lirik ikut disimpan supaya lagu offline tetap berlirik.
+            meta?.let { m -> runCatching { c.lyrics.get(m.toSong()) } }
             Result.success()
         } catch (e: Exception) {
             c.youtube.invalidate(id)

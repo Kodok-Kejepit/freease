@@ -65,6 +65,7 @@ import com.freease.music.ui.navigation.LocalBottomInset
 import com.freease.music.ui.navigation.Routes
 import com.freease.music.ui.theme.Accents
 import com.freease.music.ui.theme.Freease
+import com.freease.music.data.backup.Backup
 import com.freease.music.util.Format
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -153,6 +154,38 @@ fun SettingsScreen() {
     var crashReport by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val res = runCatching {
+                withContext(Dispatchers.IO) {
+                    val json = Backup.toJson(actions.library.exportBackup())
+                    context.contentResolver.openOutputStream(uri, "wt")!!.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                }
+            }
+            actions.toast(if (res.isSuccess) "Cadangan tersimpan" else "Gagal menyimpan cadangan: ${res.exceptionOrNull()?.message}")
+        }
+    }
+    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val res = runCatching {
+                withContext(Dispatchers.IO) {
+                    val text = context.contentResolver.openInputStream(uri)!!.use { it.readBytes().toString(Charsets.UTF_8) }
+                    actions.library.importBackup(Backup.parse(text))
+                }
+            }
+            val sum = res.getOrNull()
+            actions.toast(
+                if (sum != null) "Dipulihkan: ${sum.newLiked} lagu disukai, ${sum.playlists} playlist (${sum.songsAdded} lagu baru), ${sum.artists} artis"
+                else "Gagal memulihkan: ${res.exceptionOrNull()?.message}",
+            )
+        }
+    }
+    var usage by remember { mutableStateOf(c.dataUsage.thisMonth()) }
+    LaunchedEffect(Unit) { usage = c.dataUsage.thisMonth() }
     LaunchedEffect(Unit) { cacheBytes = withContext(Dispatchers.IO) { runCatching { c.mediaCache.cacheSpace }.getOrDefault(0L) } }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalBottomInset.current + 24.dp)) {
@@ -160,7 +193,17 @@ fun SettingsScreen() {
 
         item { Group("Kualitas suara") }
         item { Item("Kualitas streaming", "${s.audioQuality.label} — ${s.audioQuality.desc}", onClick = { dialog = "quality" }) }
-        item { SwitchItem("Hemat data di jaringan seluler", "Pakai kualitas hemat saat tidak di Wi-Fi", s.saverOnCellular, c.settings::setSaverOnCellular) }
+        item { SwitchItem("Hemat data di jaringan seluler", "Pakai kualitas seluler (bisa dipilih) saat tidak di Wi-Fi", s.saverOnCellular, c.settings::setSaverOnCellular) }
+        if (s.saverOnCellular) {
+            item { Item("Kualitas di jaringan seluler", "${s.cellularQuality.label} — ${s.cellularQuality.desc}", onClick = { dialog = "cellular" }) }
+        }
+        item {
+            Item("Pemakaian data bulan ini", "Wi-Fi ${Format.bytes(usage.first)} • Seluler ${Format.bytes(usage.second)}", onClick = {
+                c.dataUsage.reset()
+                usage = c.dataUsage.thisMonth()
+                actions.toast("Penghitung data diatur ulang")
+            })
+        }
         item { Item("Kualitas video", "Maksimal ${s.videoQuality}p", onClick = { dialog = "video" }) }
         item {
             Item("Equalizer & efek suara", if (s.eqEnabled) "Aktif" else "Nonaktif", onClick = { actions.navigate(Routes.EQUALIZER) }) {
@@ -186,6 +229,20 @@ fun SettingsScreen() {
             }
         }
         item { SwitchItem("Lewati bagian hening", "Potong jeda sunyi di awal/akhir lagu", s.skipSilence, c.settings::setSkipSilence) }
+        item { SwitchItem("Freease Pintar", "Sisipkan lagu pilihan yang dipelajari dari seleramu, dengan alasannya", s.smartMode, c.settings::setSmartMode) }
+        item {
+            Item("Atur ulang pembelajaran Freease Pintar", "Lupakan lewati dan jempol yang sudah dipelajari", onClick = {
+                c.smart.reset()
+                actions.toast("Freease Pintar mulai belajar dari awal")
+            })
+        }
+        item {
+            Item(
+                "Tidur otomatis jika tidak disentuh",
+                if (s.idleSleepMin == 0) "Mati" else "Jeda musik setelah ${s.idleSleepMin} menit tanpa sentuhan atau kontrol",
+                onClick = { dialog = "idle" },
+            )
+        }
         item { SwitchItem("Putar otomatis", "Lanjutkan dengan lagu serupa saat antrean habis", s.autoplay, c.settings::setAutoplay) }
         item { SwitchItem("Lanjutkan antrean terakhir", "Saat aplikasi dibuka lagi", s.resumeOnStart, c.settings::setResumeOnStart) }
         item { SwitchItem("Kartu lirik di player", null, s.showLyricsCard, c.settings::setShowLyricsCard) }
@@ -220,6 +277,13 @@ fun SettingsScreen() {
         item { Group("Penyimpanan") }
         item { SwitchItem("Unduh hanya lewat Wi-Fi", null, s.downloadWifiOnly, c.settings::setDownloadWifiOnly) }
         item {
+            SwitchItem(
+                "Unduh otomatis lagu favorit",
+                "Saat mengisi daya dan tersambung Wi-Fi, unduh lagu yang sering diputar atau disukai (maks. 40 lagu, yang lama tak diputar dibuang)",
+                s.autoDownload, c.settings::setAutoDownload,
+            )
+        }
+        item {
             Item(
                 "Batas cache streaming",
                 (if (s.cacheSizeMb <= 0) "Tanpa batas" else Format.bytes(s.cacheSizeMb * 1024L * 1024L)) +
@@ -237,8 +301,19 @@ fun SettingsScreen() {
             Item("Laporan crash terakhir", "Untuk dikirim ke pengembang kalau app bermasalah", onClick = {
                 scope.launch {
                     val r = withContext(Dispatchers.IO) { CrashReporter.latestReport(context) }
-                    if (r == null) actions.toast("Belum ada laporan crash 🎉") else crashReport = r
+                    if (r == null) actions.toast("Belum ada laporan crash") else crashReport = r
                 }
+            })
+        }
+        item { Group("Cadangan") }
+        item {
+            Item("Cadangkan data", "Simpan playlist, lagu disukai, dan artis ke satu berkas", onClick = {
+                exportLauncher.launch("freease-cadangan-" + java.text.SimpleDateFormat("yyyyMMdd", Locale.US).format(java.util.Date()) + ".json")
+            })
+        }
+        item {
+            Item("Pulihkan dari cadangan", "Gabungkan berkas cadangan ke koleksi ini tanpa menghapus apa pun", onClick = {
+                importLauncher.launch(arrayOf("*/*"))
             })
         }
         item { Group("Tentang") }
@@ -253,6 +328,16 @@ fun SettingsScreen() {
             "Kualitas streaming",
             AudioQuality.entries.map { it to "${it.label} — ${it.desc}" },
             s.audioQuality, { dialog = null }, c.settings::setAudioQuality,
+        )
+        "cellular" -> ChoiceDialog(
+            "Kualitas di jaringan seluler",
+            listOf(AudioQuality.NORMAL, AudioQuality.SAVER).map { it to "${it.label} — ${it.desc}" },
+            s.cellularQuality, { dialog = null }, c.settings::setCellularQuality,
+        )
+        "idle" -> ChoiceDialog(
+            "Tidur otomatis jika tidak disentuh",
+            listOf(0 to "Mati", 30 to "30 menit", 60 to "1 jam", 90 to "1,5 jam", 120 to "2 jam"),
+            s.idleSleepMin, { dialog = null }, c.settings::setIdleSleepMin,
         )
         "video" -> ChoiceDialog(
             "Kualitas video maksimal",

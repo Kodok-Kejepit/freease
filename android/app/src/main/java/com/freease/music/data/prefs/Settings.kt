@@ -44,6 +44,14 @@ data class AppSettings(
     val downloadWifiOnly: Boolean = false,
     val showLyricsCard: Boolean = true,
     val resumeOnStart: Boolean = true,
+    val smartMode: Boolean = true,
+    /** Suasana Freease Pintar: "" (biasa), "focus", "chill", "workout", "sleep". */
+    val smartMood: String = "",
+    /** Kualitas yang dipakai saat di jaringan seluler (kalau [saverOnCellular] aktif). */
+    val cellularQuality: AudioQuality = AudioQuality.SAVER,
+    val autoDownload: Boolean = false,
+    /** Timer tidur otomatis kalau tidak ada interaksi selama sekian menit (0 = mati). */
+    val idleSleepMin: Int = 0,
 )
 
 private val Context.dataStore by preferencesDataStore("freease_settings")
@@ -71,6 +79,11 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val wifiOnly = booleanPreferencesKey("dl_wifi_only")
         val lyricsCard = booleanPreferencesKey("lyrics_card")
         val resume = booleanPreferencesKey("resume_on_start")
+        val smart = booleanPreferencesKey("smart_mode")
+        val mood = stringPreferencesKey("smart_mood")
+        val cellularQuality = stringPreferencesKey("cellular_quality")
+        val autoDl = booleanPreferencesKey("auto_download")
+        val idleSleep = intPreferencesKey("idle_sleep_min")
     }
 
     private fun read(p: Preferences) = AppSettings(
@@ -95,6 +108,11 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         downloadWifiOnly = p[K.wifiOnly] ?: false,
         showLyricsCard = p[K.lyricsCard] ?: true,
         resumeOnStart = p[K.resume] ?: true,
+        smartMode = p[K.smart] ?: true,
+        smartMood = p[K.mood] ?: "",
+        cellularQuality = p[K.cellularQuality]?.let { runCatching { AudioQuality.valueOf(it) }.getOrNull() } ?: AudioQuality.SAVER,
+        autoDownload = p[K.autoDl] ?: false,
+        idleSleepMin = p[K.idleSleep] ?: 0,
     )
 
     /** Dibaca sekali secara sinkron saat start supaya service langsung punya nilai yang benar. */
@@ -134,4 +152,9 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setDownloadWifiOnly(v: Boolean) = edit { it[K.wifiOnly] = v }
     fun setShowLyricsCard(v: Boolean) = edit { it[K.lyricsCard] = v }
     fun setResumeOnStart(v: Boolean) = edit { it[K.resume] = v }
+    fun setSmartMode(v: Boolean) = edit { it[K.smart] = v }
+    fun setSmartMood(v: String) = edit { it[K.mood] = v }
+    fun setCellularQuality(v: AudioQuality) = edit { it[K.cellularQuality] = v.name }
+    fun setAutoDownload(v: Boolean) = edit { it[K.autoDl] = v }
+    fun setIdleSleepMin(v: Int) = edit { it[K.idleSleep] = v }
 }

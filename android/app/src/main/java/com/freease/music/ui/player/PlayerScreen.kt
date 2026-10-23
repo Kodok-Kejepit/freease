@@ -37,7 +37,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.ThumbDown
+import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
@@ -153,7 +156,9 @@ fun PlayerScreen(onCollapse: () -> Unit) {
                         }
                     }
                     TitleRow(song)
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(8.dp))
+                    SmartBar(song, settings.smartMode)
+                    Spacer(Modifier.height(6.dp))
                     SeekSection(state.durationMs, song.isLive)
                     Spacer(Modifier.height(6.dp))
                     Controls(state)
@@ -178,6 +183,76 @@ fun PlayerScreen(onCollapse: () -> Unit) {
     }
     if (showSleep) SleepTimerDialog { showSleep = false }
     if (showSpeed) SpeedDialog { showSpeed = false }
+}
+
+/** Tombol Freease Pintar; untuk lagu sisipan juga menampilkan alasan dan jempol naik/turun. */
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun SmartBar(song: Song, enabled: Boolean) {
+    val actions = LocalActions.current
+    val settings by actions.container.settings.flow.collectAsState()
+    var showMood by remember { mutableStateOf(false) }
+    val mood = com.freease.music.playback.smart.SmartMood.byId(settings.smartMood)
+    val accent = Freease.accent.primary
+    val dim = Color.White.copy(alpha = 0.8f)
+    if (showMood) MoodDialog { showMood = false }
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (enabled) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.10f))
+                    .clickable {
+                        actions.container.settings.setSmartMode(!enabled)
+                        actions.toast(if (enabled) "Freease Pintar dimatikan" else "Freease Pintar aktif")
+                    }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.AutoAwesome, null, tint = if (enabled) accent else dim, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Freease Pintar", style = MaterialTheme.typography.labelLarge, color = if (enabled) accent else dim)
+            }
+            if (enabled) {
+                Spacer(Modifier.width(8.dp))
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (mood != null) accent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.10f))
+                        .clickable { showMood = true }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        mood?.label ?: "Suasana",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (mood != null) accent else dim,
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            if (song.isSmartPick) {
+                IconButton(onClick = {
+                    actions.container.smart.thumbDown(song)
+                    actions.toast("Tidak akan ditawarkan lagi")
+                    actions.player.next()
+                }) { Icon(Icons.Rounded.ThumbDown, "Kurang cocok", tint = dim, modifier = Modifier.size(22.dp)) }
+                IconButton(onClick = {
+                    actions.container.smart.thumbUp(song)
+                    actions.toast("Ditambahkan ke Lagu yang Disukai")
+                }) { Icon(Icons.Rounded.ThumbUp, "Cocok", tint = dim, modifier = Modifier.size(22.dp)) }
+            }
+        }
+        song.smartWhy?.let { why ->
+            Text(
+                why,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.7f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
 /** Satu-satunya bagian yang membaca posisi — jadi hanya ini yang digambar ulang tiap detik. */

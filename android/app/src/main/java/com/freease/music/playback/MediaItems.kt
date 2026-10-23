@@ -25,6 +25,7 @@ object MediaItems {
     private const val EXTRA_THUMB = "thumb"
     private const val EXTRA_DURATION = "duration"
     private const val EXTRA_LIVE = "live"
+    private const val EXTRA_WHY = "smartWhy"
 
     fun fromSong(song: Song): MediaItem {
         val extras = Bundle().apply {
@@ -32,6 +33,7 @@ object MediaItems {
             putString(EXTRA_THUMB, song.thumbnail)
             putLong(EXTRA_DURATION, song.durationSec)
             putBoolean(EXTRA_LIVE, song.isLive)
+            putString(EXTRA_WHY, song.smartWhy)
         }
         val metadata = MediaMetadata.Builder()
             .setTitle(song.title)
@@ -66,8 +68,11 @@ object MediaItems {
             durationSec = e?.getLong(EXTRA_DURATION) ?: 0,
             thumbnail = e?.getString(EXTRA_THUMB),
             isLive = e?.getBoolean(EXTRA_LIVE) == true,
+            smartWhy = e?.getString(EXTRA_WHY),
         )
     }
+
+    fun isSmart(item: MediaItem) = item.mediaMetadata.extras?.getString(EXTRA_WHY) != null
 
     fun isLive(item: MediaItem) = item.mediaMetadata.extras?.getBoolean(EXTRA_LIVE) == true
 

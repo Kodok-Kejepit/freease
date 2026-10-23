@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
@@ -136,6 +137,13 @@ fun LibraryScreen() {
                 }
             }
             if (filter == 0) {
+                item {
+                    FixedRow("Monthly Freease", "Rekap, pencapaian, dan favorit bulananmu", onClick = { actions.navigate(Routes.MONTHLY) }) {
+                        Box(Modifier.fillMaxSize().background(Freease.accent.brush), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.CalendarMonth, null, tint = Color.White, modifier = Modifier.size(30.dp))
+                        }
+                    }
+                }
                 item {
                     FixedRow("Riwayat putar", "Semua yang pernah kamu dengar", onClick = { actions.navigate(Routes.HISTORY) }) {
                         Box(

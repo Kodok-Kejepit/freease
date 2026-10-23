@@ -57,6 +57,13 @@ class AudioEffectsController(private val context: Context) {
         )
     }
 
+    /** Bangun ulang efek: sistem kadang mereset/mematikan efek saat aplikasi lain (game) memakai audio. */
+    fun rebuild(audioSessionId: Int, settings: AppSettings) {
+        release(broadcastClose = false)
+        sessionId = -1
+        attach(audioSessionId, settings)
+    }
+
     fun apply(s: AppSettings) {
         runCatching {
             eq?.let { e ->

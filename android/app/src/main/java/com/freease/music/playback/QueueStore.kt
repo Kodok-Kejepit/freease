@@ -20,7 +20,7 @@ class QueueStore(context: Context) {
                     JSONObject()
                         .put("id", s.id).put("title", s.title).put("artist", s.artist)
                         .put("artistUrl", s.artistUrl).put("album", s.album)
-                        .put("duration", s.durationSec).put("thumb", s.thumbnail).put("live", s.isLive),
+                        .put("duration", s.durationSec).put("thumb", s.thumbnail).put("live", s.isLive).put("why", s.smartWhy),
                 )
             }
             val o = JSONObject().put("songs", arr).put("index", q.index).put("position", q.positionMs)
@@ -45,6 +45,7 @@ class QueueStore(context: Context) {
                 durationSec = s.optLong("duration"),
                 thumbnail = s.optString("thumb").takeIf { it.isNotBlank() && it != "null" },
                 isLive = s.optBoolean("live"),
+                smartWhy = s.optString("why").takeIf { it.isNotBlank() && it != "null" },
             )
         }
         if (songs.isEmpty()) null

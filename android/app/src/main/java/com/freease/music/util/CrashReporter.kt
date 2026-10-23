@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Perekam masalah di perangkat sendiri (tanpa server):
  * - crash (exception yang tidak tertangkap) → stack trace disimpan ke file
- * - main thread macet > 5 detik → stack main thread disimpan (cikal bakal ANR)
+ * - main thread macet > 10 detik → stack main thread disimpan (cikal bakal ANR)
  * - Android 11+: alasan app berhenti dari sistem (ANR, crash native, kehabisan memori)
  * Laporan ditawarkan untuk dibagikan saat app dibuka berikutnya.
  */
@@ -47,7 +47,7 @@ object CrashReporter {
         if (Build.FINGERPRINT != "robolectric") startWatchdog()
     }
 
-    /** Thread kecil yang memeriksa apakah main thread masih merespons (tiap 2 detik). */
+    /** Thread kecil yang memeriksa apakah main thread masih merespons (tiap 10 detik). */
     private fun startWatchdog() {
         val main = Handler(Looper.getMainLooper())
         Thread({
@@ -55,12 +55,12 @@ object CrashReporter {
             while (true) {
                 val answered = AtomicBoolean(false)
                 main.post { answered.set(true) }
-                Thread.sleep(5_000)
+                Thread.sleep(10_000)
                 if (!answered.get() && !reportedForCurrentFreeze) {
                     reportedForCurrentFreeze = true
                     runCatching {
                         val trace = Looper.getMainLooper().thread.stackTrace.joinToString("\n") { "    at $it" }
-                        write("freeze", "Jenis : Main thread macet > 5 detik\n\n$trace\n")
+                        write("freeze", "Jenis : Main thread macet > 10 detik\n\n$trace\n")
                     }
                 } else if (answered.get()) {
                     reportedForCurrentFreeze = false

@@ -1,7 +1,7 @@
 package com.freease.music.playback
 
-import android.animation.ValueAnimator
-import android.view.animation.DecelerateInterpolator
+import android.os.Handler
+import android.os.SystemClock
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -30,28 +30,42 @@ class FadingPlayer(
     private val mixer: VolumeMixer,
     private val fadeEnabled: () -> Boolean,
 ) : ForwardingPlayer(exo) {
-    private var animator: ValueAnimator? = null
+    private val handler = Handler(exo.applicationLooper)
+    private var step: Runnable? = null
 
+    private fun cancelFade() {
+        step?.let { handler.removeCallbacks(it) }
+        step = null
+    }
+
+    /**
+     * Fade berbasis waktu lewat Handler, bukan ValueAnimator: animator bergantung pada vsync dan
+     * bisa macet saat game/aplikasi lain di depan, membuat volume tertahan di 0 (play tanpa suara).
+     */
     private fun animate(to: Float, duration: Long, end: (() -> Unit)? = null) {
-        animator?.cancel()
-        animator = ValueAnimator.ofFloat(mixer.fade, to).apply {
-            this.duration = duration
-            interpolator = DecelerateInterpolator()
-            addUpdateListener { mixer.fade = it.animatedValue as Float }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                private var cancelled = false
-                override fun onAnimationCancel(animation: android.animation.Animator) { cancelled = true }
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    if (!cancelled) end?.invoke()
+        cancelFade()
+        val from = mixer.fade
+        val t0 = SystemClock.uptimeMillis()
+        val r = object : Runnable {
+            override fun run() {
+                val f = ((SystemClock.uptimeMillis() - t0).toFloat() / duration).coerceIn(0f, 1f)
+                val eased = 1f - (1f - f) * (1f - f)
+                mixer.fade = from + (to - from) * eased
+                if (f < 1f) {
+                    handler.postDelayed(this, 30)
+                } else {
+                    step = null
+                    end?.invoke()
                 }
-            })
-            start()
+            }
         }
+        step = r
+        r.run()
     }
 
     override fun play() {
         if (!fadeEnabled()) {
-            animator?.cancel()
+            cancelFade()
             mixer.fade = 1f
             exo.play()
             return
@@ -63,7 +77,7 @@ class FadingPlayer(
 
     override fun pause() {
         if (!fadeEnabled() || !exo.isPlaying) {
-            animator?.cancel()
+            cancelFade()
             exo.pause()
             mixer.fade = 1f
             return

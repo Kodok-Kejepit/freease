@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">Freease</string>
+    <string name="widget_name">Pemutar Freease</string>
+    <string name="widget_description">Kontrol musik dan lagu yang sedang diputar</string>
+    <string name="widget_idle_title">Freease</string>
+    <string name="widget_idle_subtitle">Ketuk putar untuk melanjutkan</string>
+    <string name="widget_prev">Sebelumnya</string>
+    <string name="widget_play">Putar atau jeda</string>
+    <string name="widget_next">Berikutnya</string>
 </resources>

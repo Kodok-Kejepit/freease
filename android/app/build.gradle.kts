@@ -13,15 +13,20 @@ android {
         applicationId = "com.freease.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 8
+        versionName = "1.1.3"
         vectorDrawables.useSupportLibrary = true
+        // Hanya sertakan resource bahasa yang dipakai (library AndroidX/Material membawa puluhan bahasa).
+        androidResources.localeFilters += setOf("en", "id")
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            isDebuggable = false
+            // Ditandatangani dengan debug key supaya langsung bisa dipasang; ganti dengan key sendiri untuk rilis.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -58,7 +63,18 @@ android {
         disable += "UnsafeOptInUsageError"
     }
     packaging {
-        resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/DEPENDENCIES")
+        resources.excludes += setOf(
+            "/META-INF/{AL2.0,LGPL2.1}", "META-INF/DEPENDENCIES",
+            "META-INF/*.version", "META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/INDEX.LIST",
+            "META-INF/*.kotlin_module", "META-INF/com/android/build/gradle/**",
+            "DebugProbesKt.bin", "kotlin-tooling-metadata.json", "**/*.kotlin_builtins",
+            "**/*.kotlin_metadata", "META-INF/versions/**", "okhttp3/internal/publicsuffix/NOTICE",
+        )
+    }
+    // Tidak butuh dependency metadata di APK (hanya berguna untuk Play Store).
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 }
 
@@ -87,6 +103,8 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    // org.json asli (android.jar hanya berisi stub kosong di unit test JVM).
+    testImplementation("org.json:json:20231013")
     testImplementation(libs.robolectric)
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)

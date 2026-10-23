@@ -22,9 +22,12 @@ object TitleCleaner {
 
     fun cleanTitle(title: String): String {
         var t = title.replace(bracketNoise, "").replace(pipeTail, "").replace(hashtags, "")
-        t = t.replace(spaces, " ").trim()
+        // Sisa pemisah di ujung ("Dewa 19 - Kangen - (Lirik)" → "Dewa 19 - Kangen").
+        t = t.replace(spaces, " ").trim().trim(*edgeSeparators).trim()
         return t.ifEmpty { title }
     }
+
+    private val edgeSeparators = charArrayOf('-', '–', '—', '−', '‐', '|', '｜', ':', '~', '•', ' ', '\u00A0')
 
     /** Hasil: Pair(judul, artis). */
     fun split(rawTitle: String, uploader: String): Pair<String, String> {

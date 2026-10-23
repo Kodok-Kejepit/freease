@@ -33,6 +33,7 @@ object Routes {
     const val DOWNLOADS = "downloads"
     const val HISTORY = "history"
     const val STATS = "stats"
+    const val MONTHLY = "monthly"
     const val SETTINGS = "settings"
     const val EQUALIZER = "equalizer"
     const val CATEGORY = "category?title={title}&query={query}"

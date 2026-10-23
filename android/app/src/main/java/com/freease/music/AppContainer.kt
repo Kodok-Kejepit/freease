@@ -26,6 +26,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.io.File
@@ -38,7 +41,11 @@ class AppContainer(private val context: Context) {
 
     val settings = SettingsRepository(context, appScope)
 
+    val dataUsage = com.freease.music.data.DataUsage(context, appScope)
+
     val httpClient: OkHttpClient = OkHttpClient.Builder()
+        // Interceptor jaringan: menghitung byte yang benar-benar lewat (masih terkompresi), bukan hasil ekstraknya.
+        .addNetworkInterceptor(dataUsage.interceptor)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
@@ -54,9 +61,15 @@ class AppContainer(private val context: Context) {
     val db: FreeaseDatabase = FreeaseDatabase.build(context)
     val youtube = YouTubeRepository()
     val library = LibraryRepository(db)
-    val lyrics = LyricsRepository(httpClient)
+    val lyrics = LyricsRepository(httpClient, File(context.filesDir, "lyrics3")) { settings.current.region }
     val downloads = DownloadManager(context, appScope)
     val queueStore = QueueStore(context)
+
+    /** Data belajar Freease Pintar (database terpisah, dibuka hanya saat pertama dipakai). */
+    private val tasteDb by lazy { com.freease.music.data.taste.TasteDatabase.build(context) }
+    val smart: com.freease.music.playback.smart.SmartEngine by lazy {
+        com.freease.music.playback.smart.SmartEngine(library, youtube, tasteDb.dao(), appScope)
+    }
     val sleepTimer = SleepTimer()
     val effects = AudioEffectsController(context)
     val player = PlayerConnection(context, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate), youtube)
@@ -70,6 +83,14 @@ class AppContainer(private val context: Context) {
         SimpleCache(File(context.cacheDir, "media"), evictor, StandaloneDatabaseProvider(context))
     }
 
+    /** Waktu terakhir pengguna menyentuh app atau mengendalikan pemutar (untuk tidur otomatis). */
+    @Volatile var lastInteraction: Long = System.currentTimeMillis()
+        private set
+
+    fun touchInteraction() {
+        lastInteraction = System.currentTimeMillis()
+    }
+
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages: SharedFlow<String> = _messages
 
@@ -79,6 +100,12 @@ class AppContainer(private val context: Context) {
 
     init {
         YouTubeRepository.initNewPipe(NewPipeHttp(httpClient), settings.current.region)
+        // Jadwal unduhan otomatis mengikuti pengaturan (aktif hanya saat mengisi daya + Wi-Fi).
+        appScope.launch {
+            settings.flow.map { it.autoDownload }.distinctUntilChanged().collect {
+                com.freease.music.data.download.AutoDownloader.sync(context, it)
+            }
+        }
     }
 
     fun isMetered(): Boolean {

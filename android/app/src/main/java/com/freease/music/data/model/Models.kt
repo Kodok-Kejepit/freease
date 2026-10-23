@@ -13,7 +13,11 @@ data class Song(
     val durationSec: Long = 0,
     val thumbnail: String? = null,
     val isLive: Boolean = false,
+    /** Terisi kalau lagu ini sisipan Freease Pintar; isinya alasan singkat kenapa dipilih. */
+    val smartWhy: String? = null,
 ) {
+    val isSmartPick: Boolean get() = smartWhy != null
+
     /** Artwork resolusi tinggi untuk player, notifikasi, dan layar kunci. */
     val artworkUrl: String get() = Thumbs.best(id, thumbnail)
 
@@ -54,9 +58,24 @@ data class LyricLine(val timeMs: Long, val text: String)
 data class Lyrics(
     val synced: List<LyricLine>?,
     val plain: String?,
-    val source: String = "LRCLIB",
+    val source: String = "",
+    /** Geseran sinkron: positif = lirik muncul lebih lambat. Disimpan per video. */
+    val offsetMs: Long = 0,
+    /**
+     * false = waktu lirik dibuat untuk versi lain lagu ini (mis. video klip dengan intro berbeda),
+     * jadi baris belum boleh mengikuti lagu sampai pengguna menyelaraskannya.
+     */
+    val timingTrusted: Boolean = true,
+    /** Pengguna sudah menyelaraskan sendiri (ketuk baris yang sedang dinyanyikan / geser manual). */
+    val userSynced: Boolean = false,
 ) {
     val isEmpty: Boolean get() = synced.isNullOrEmpty() && plain.isNullOrBlank()
+
+    /** Baris boleh disorot dan digulir mengikuti lagu. */
+    val canFollow: Boolean get() = !synced.isNullOrEmpty() && (timingTrusted || userSynced)
+
+    /** Teks lengkap untuk tampilan tanpa sinkron. */
+    val text: String get() = plain?.takeIf { it.isNotBlank() } ?: synced.orEmpty().joinToString("\n") { it.text }
 }
 
 object Thumbs {

@@ -206,6 +206,7 @@ class PlayerConnection(
     }
 
     fun seekTo(ms: Long) = withController { it.seekTo(ms) }
+    fun currentPosition(): Long = _controller.value?.currentPosition ?: 0L
     fun seekBy(deltaMs: Long) = withController { it.seekTo((it.currentPosition + deltaMs).coerceAtLeast(0)) }
 
     fun skipTo(index: Int) = withController { c ->

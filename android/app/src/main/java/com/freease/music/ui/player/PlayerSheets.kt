@@ -22,6 +22,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.FitnessCenter
+import androidx.compose.material.icons.rounded.Lightbulb
+import androidx.compose.material.icons.rounded.Spa
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -56,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import com.freease.music.data.model.Thumbs
 import com.freease.music.ui.components.Artwork
+import com.freease.music.playback.smart.SmartMood
 import com.freease.music.ui.components.PlayingBars
 import com.freease.music.ui.navigation.LocalActions
 import com.freease.music.ui.theme.Freease
@@ -83,6 +89,21 @@ fun QueueSheet(onDismiss: () -> Unit) {
                     if (from.isNotBlank()) Text("Diputar dari $from", style = MaterialTheme.typography.bodySmall, color = Freease.colors.muted)
                 }
                 TextButton(onClick = { actions.player.clearUpcoming() }) { Text("Bersihkan", color = Freease.colors.muted) }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(10.dp)).background(Freease.colors.card).padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Freease Pintar", style = MaterialTheme.typography.titleSmall)
+                    Text("Sisipkan lagu pilihan yang cocok dengan seleramu", style = MaterialTheme.typography.bodySmall, color = Freease.colors.muted)
+                }
+                Switch(
+                    checked = settings.smartMode,
+                    onCheckedChange = { actions.container.settings.setSmartMode(it) },
+                    colors = SwitchDefaults.colors(checkedTrackColor = Freease.accent.primary),
+                )
             }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)
@@ -133,11 +154,17 @@ fun QueueSheet(onDismiss: () -> Unit) {
                                     else -> Color.White
                                 },
                             )
-                            Text(
-                                entry.song.artist + if (entry.song.durationSec > 0) " • ${Format.duration(entry.song.durationSec)}" else "",
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodySmall, color = Freease.colors.muted,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (entry.song.isSmartPick) {
+                                    Icon(Icons.Rounded.AutoAwesome, "Pilihan Freease Pintar", tint = Freease.accent.primary, modifier = Modifier.size(13.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                }
+                                Text(
+                                    entry.song.artist + if (entry.song.durationSec > 0) " • ${Format.duration(entry.song.durationSec)}" else "",
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall, color = Freease.colors.muted,
+                                )
+                            }
                         }
                         if (!current) {
                             IconButton(onClick = { if (entry.index > 0) actions.player.move(entry.index, entry.index - 1) }) {
@@ -181,10 +208,23 @@ fun SleepTimerDialog(onDismiss: () -> Unit) {
                 if (st.active) {
                     val remaining = st.endsAt?.let { ((it - now.toLong()) / 1000).coerceAtLeast(0) }
                     Text(
-                        if (st.endOfTrack) "Berhenti setelah lagu ini selesai" else "Berhenti dalam ${Format.duration(remaining ?: 0)}",
+                        when {
+                            st.endOfTrack -> "Berhenti setelah lagu ini selesai"
+                            st.songsLeft != null -> "Berhenti setelah ${st.songsLeft} lagu lagi"
+                            else -> "Berhenti dalam ${Format.duration(remaining ?: 0)}"
+                        },
                         color = Freease.accent.primary,
                         style = MaterialTheme.typography.titleMedium,
                     )
+                    if (st.endsAt != null) {
+                        Text(
+                            "Tambah 10 menit",
+                            style = MaterialTheme.typography.bodyLarge, color = Freease.accent.primary,
+                            modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                                .clickable { timer.extend(10); actions.toast("Ditambah 10 menit") }
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                 }
                 listOf(5, 10, 15, 30, 45, 60, 90).forEach { m ->
@@ -193,6 +233,15 @@ fun SleepTimerDialog(onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                             .clickable { timer.start(m); actions.toast("Musik berhenti dalam $m menit"); onDismiss() }
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                    )
+                }
+                listOf(2, 3, 5, 10).forEach { n ->
+                    Text(
+                        "Setelah $n lagu",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                            .clickable { timer.startSongs(n); actions.toast("Berhenti setelah $n lagu"); onDismiss() }
                             .padding(vertical = 10.dp, horizontal = 4.dp),
                     )
                 }
@@ -256,6 +305,64 @@ fun SpeedDialog(onDismiss: () -> Unit) {
                 Text("Normal", color = Freease.accent.primary)
             }
         },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Tutup", color = Freease.colors.muted) } },
+    )
+}
+
+private fun moodIcon(id: String?): androidx.compose.ui.graphics.vector.ImageVector = when (id) {
+    "focus" -> Icons.Rounded.Lightbulb
+    "chill" -> Icons.Rounded.Spa
+    "workout" -> Icons.Rounded.FitnessCenter
+    "sleep" -> Icons.Rounded.Bedtime
+    else -> Icons.Rounded.AutoAwesome
+}
+
+/** Pilih suasana Freease Pintar; suasana Tidur sekaligus menyalakan timer tidur. */
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+fun MoodDialog(onDismiss: () -> Unit) {
+    val actions = LocalActions.current
+    val settings by actions.container.settings.flow.collectAsState()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Freease.colors.elevated,
+        title = { Text("Suasana Freease Pintar") },
+        text = {
+            Column {
+                val options = listOf<Pair<String, SmartMood?>>("" to null) + SmartMood.entries.map { it.id to it }
+                options.forEach { (id, mood) ->
+                    val selected = settings.smartMood == id
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(if (selected) Freease.accent.primary.copy(alpha = 0.18f) else Color.Transparent)
+                            .clickable {
+                                actions.container.settings.setSmartMode(true)
+                                actions.container.settings.setSmartMood(id)
+                                if (mood == SmartMood.SLEEP) {
+                                    actions.container.sleepTimer.start(45)
+                                    actions.toast("Suasana Tidur: musik berhenti dalam 45 menit")
+                                } else {
+                                    actions.toast(if (mood == null) "Suasana: otomatis" else "Suasana ${mood.label} aktif")
+                                }
+                                onDismiss()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(moodIcon(id.ifEmpty { null }), null, tint = if (selected) Freease.accent.primary else Freease.colors.muted)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(mood?.label ?: "Otomatis", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                mood?.blurb ?: "Mengikuti seleramu dan waktu hari ini",
+                                style = MaterialTheme.typography.bodySmall, color = Freease.colors.muted,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Tutup", color = Freease.colors.muted) } },
     )
 }

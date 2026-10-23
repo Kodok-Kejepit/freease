@@ -84,6 +84,7 @@ import com.freease.music.ui.screens.HomeScreen
 import com.freease.music.ui.screens.LibraryScreen
 import com.freease.music.ui.screens.LikedScreen
 import com.freease.music.ui.screens.LocalPlaylistScreen
+import com.freease.music.ui.screens.MonthlyScreen
 import com.freease.music.ui.screens.OnlinePlaylistScreen
 import com.freease.music.ui.screens.SearchScreen
 import com.freease.music.ui.screens.SettingsScreen
@@ -131,6 +132,7 @@ fun FreeaseRoot(container: AppContainer, onActionsReady: (AppActions) -> Unit) {
                     composable(Routes.DOWNLOADS) { DownloadsScreen() }
                     composable(Routes.HISTORY) { HistoryScreen() }
                     composable(Routes.STATS) { StatsScreen() }
+                    composable(Routes.MONTHLY) { MonthlyScreen() }
                     composable(Routes.SETTINGS) { SettingsScreen() }
                     composable(Routes.EQUALIZER) { EqualizerScreen() }
                     composable(Routes.ARTIST, arguments = listOf(navArgument("url") { type = NavType.StringType })) {

@@ -130,3 +130,30 @@ data class HistoryRow(
     @Embedded val song: SongEntity,
     val playedAt: Long,
 )
+
+/** Satu kejadian dengar, dipakai untuk menghitung selera (bukan entitas tabel). */
+data class TasteEvent(
+    val songId: String,
+    val artist: String,
+    val title: String,
+    val ts: Long,
+    val playedMs: Long,
+    val durationSec: Long,
+)
+
+/** Album yang paling sering diputar dalam satu rentang waktu. */
+data class AlbumStat(
+    val album: String,
+    val artist: String,
+    val sampleId: String,
+    val sampleThumb: String?,
+    val ms: Long,
+    val plays: Int,
+    val tracks: Int,
+)
+
+/** Cap waktu satu kejadian dengar (bahan analisis jam, hari, dan runtunan). */
+data class PlayStamp(val ts: Long, val ms: Long)
+
+/** Artis yang paling banyak lagunya disukai dalam satu rentang waktu. */
+data class LikedArtistStat(val artist: String, val likes: Int, val sampleId: String, val sampleThumb: String?)

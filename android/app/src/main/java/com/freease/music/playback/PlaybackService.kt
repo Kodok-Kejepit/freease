@@ -2,6 +2,7 @@ package com.freease.music.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -27,6 +28,13 @@ import com.freease.music.R
 import com.freease.music.data.db.DownloadState
 import com.freease.music.data.model.Song
 import com.freease.music.data.prefs.AudioQuality
+import com.freease.music.playback.smart.SmartMood
+import com.freease.music.widget.PlayerWidget
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.toBitmap
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -40,6 +48,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.guava.future
@@ -69,6 +78,7 @@ class PlaybackService : MediaSessionService() {
     private var sleepFading = false
     private var lastSaveAt = 0L
     private var tickerRunning = false
+    private var pausedAt = 0L
 
     /** Jumlah lagu berturut-turut yang gagal diputar — rem supaya tidak loop tanpa henti. */
     private var consecutiveFailures = 0
@@ -138,6 +148,76 @@ class PlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_WIDGET) {
+            handleWidget(intent.getStringExtra(EXTRA_CMD))
+            return START_NOT_STICKY
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    // ------------------------------------------------------------------ widget
+
+    private var widgetArtId: String? = null
+    private var widgetArt: Bitmap? = null
+    private var widgetJob: Job? = null
+
+    /** Perintah dari tombol widget layar utama. */
+    private fun handleWidget(cmd: String?) {
+        val p = session?.player ?: return
+        when (cmd) {
+            "next" -> if (exo.mediaItemCount > 0) p.seekToNextMediaItem()
+            "prev" -> if (exo.mediaItemCount > 0) {
+                if (exo.currentPosition > 4_000 || !exo.hasPreviousMediaItem()) p.seekTo(0) else p.seekToPreviousMediaItem()
+            }
+            "toggle" -> when {
+                exo.mediaItemCount == 0 -> restoreAndPlay()
+                exo.isPlaying -> p.pause()
+                else -> {
+                    if (exo.playbackState == Player.STATE_IDLE) exo.prepare()
+                    if (exo.playbackState == Player.STATE_ENDED) exo.seekToDefaultPosition()
+                    p.play()
+                }
+            }
+        }
+        // Service hidup hanya karena widget dan tidak ada yang diputar → jangan dibiarkan menggantung.
+        handler.postDelayed({
+            if (!exo.playWhenReady && session?.connectedControllers?.isEmpty() != false) stopSelf()
+        }, 4_000)
+    }
+
+    private fun restoreAndPlay() {
+        scope.launch {
+            val saved = withContext(Dispatchers.IO) { container.queueStore.load() } ?: return@launch
+            if (exo.mediaItemCount == 0) {
+                exo.setMediaItems(preparePlayback(saved.songs.map(MediaItems::fromSong)), saved.index, saved.positionMs)
+            }
+            exo.prepare()
+            session?.player?.play()
+        }
+    }
+
+    /** Kirim judul/artis/sampul/status ke widget — dilewati sepenuhnya kalau tidak ada widget. */
+    private fun updateWidget() {
+        if (!PlayerWidget.hasWidgets(this)) return
+        widgetJob?.cancel()
+        val song = exo.currentMediaItem?.let(MediaItems::toSong)
+        val playing = exo.isPlaying
+        widgetJob = scope.launch {
+            if (song != null && song.id != widgetArtId) {
+                PlayerWidget.push(applicationContext, song.title, song.artist, playing, null)
+                widgetArt = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val req = ImageRequest.Builder(this@PlaybackService).data(song.artworkSmall).allowHardware(false).size(200).build()
+                        (imageLoader.execute(req) as? SuccessResult)?.image?.toBitmap()
+                    }.getOrNull()
+                }
+                widgetArtId = song.id
+            }
+            PlayerWidget.push(applicationContext, song?.title, song?.artist, playing, if (song != null) widgetArt else null)
+        }
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         val p = session?.player
         if (p == null || !p.playWhenReady || p.mediaItemCount == 0 || p.playbackState == Player.STATE_ENDED) {
@@ -163,9 +243,12 @@ class PlaybackService : MediaSessionService() {
 
     private fun observeSettings() {
         scope.launch {
+            var lastMood: String? = null
             container.settings.flow.collect { s ->
                 exo.skipSilenceEnabled = s.skipSilence
                 container.effects.apply(s)
+                if (lastMood != null && lastMood != s.smartMood) onMoodChanged()
+                lastMood = s.smartMood
             }
         }
     }
@@ -177,13 +260,18 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun observeSleepTimer() {
+        // Timer berbasis lagu: ExoPlayer sendiri yang berhenti tepat di akhir lagu (juga saat ulangi-satu
+        // atau lagu terakhir), tanpa sempat memutar awal lagu berikutnya.
         scope.launch {
-            container.sleepTimer.state.map { it.endsAt }.distinctUntilChanged().collect { endsAt ->
-                if (endsAt == null) {
-                    mixer.sleep = 1f
-                    sleepFading = false
-                    return@collect
-                }
+            container.sleepTimer.state.map { it.stopAtEndOfTrack }.distinctUntilChanged().collect {
+                exo.pauseAtEndOfMediaItems = it
+            }
+        }
+        scope.launch {
+            container.sleepTimer.state.map { it.endsAt }.distinctUntilChanged().collectLatest { endsAt ->
+                mixer.sleep = 1f
+                sleepFading = false
+                if (endsAt == null) return@collectLatest
                 val fadeMs = 8_000L
                 delay((endsAt - System.currentTimeMillis() - fadeMs).coerceAtLeast(0))
                 sleepFading = true
@@ -202,7 +290,9 @@ class PlaybackService : MediaSessionService() {
 
     private fun effectiveQuality(): AudioQuality {
         val s = container.settings.current
-        return if (s.saverOnCellular && container.isMetered()) AudioQuality.SAVER else s.audioQuality
+        if (!s.saverOnCellular || !container.isMetered()) return s.audioQuality
+        // Di seluler pakai kualitas seluler, tapi tidak pernah lebih tinggi dari pilihan utama.
+        return if (s.cellularQuality.ordinal >= s.audioQuality.ordinal) s.cellularQuality else s.audioQuality
     }
 
     private suspend fun localPath(id: String): String? = withContext(Dispatchers.IO) {
@@ -242,19 +332,20 @@ class PlaybackService : MediaSessionService() {
             if (newId != null && newId == trackingSong?.id && reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                 return // item yang sama diganti (mis. mode video) — bukan lagu baru
             }
-            flushListening()
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) container.touchInteraction()
+            flushListening(reason)
             trackingSong = mediaItem?.let(MediaItems::toSong)
             trackingSong?.let { song -> scope.launch { container.library.touch(song) } }
 
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
-                if (container.sleepTimer.state.value.endOfTrack) {
-                    exo.pause()
-                    container.sleepTimer.cancel()
-                }
-                if (container.settings.current.crossfadeSec > 0) fadeInStartedAt = System.currentTimeMillis()
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                container.sleepTimer.onTrackFinished()
+            }
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && container.settings.current.crossfadeSec > 0) {
+                fadeInStartedAt = System.currentTimeMillis()
             }
             mediaItem?.let { if (MediaItems.isVideo(it) != container.videoMode.value) swapCurrent(container.videoMode.value) }
             updateLikeButton()
+            updateWidget()
             maybeAutoplay()
             saveQueue()
         }
@@ -267,11 +358,25 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            updateWidget()
             if (isPlaying) {
                 consecutiveFailures = 0
                 startTicker()
+                // Habis jeda lama (mis. main game), pastikan efek suara masih sehat.
+                if (System.currentTimeMillis() - pausedAt > 20_000) {
+                    container.effects.rebuild(exo.audioSessionId, container.settings.current)
+                }
             } else {
+                pausedAt = System.currentTimeMillis()
                 saveQueue()
+            }
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) container.touchInteraction()
+            // Berhenti tepat di akhir lagu karena timer "akhir lagu" / "setelah N lagu".
+            if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) {
+                container.sleepTimer.onStoppedAtEnd()
             }
         }
 
@@ -339,11 +444,39 @@ class PlaybackService : MediaSessionService() {
             if (lastTick > 0) listenedMs += (now - lastTick)
             lastTick = now
             val fading = updateCrossfade(now)
+            checkIdleSleep(now)
             if (now - lastSaveAt > 30_000) {
                 lastSaveAt = now
                 saveQueue()
             }
             handler.postDelayed(this, if (fading) 100 else 1000)
+        }
+    }
+
+    private var idleJob: Job? = null
+
+    /**
+     * Tidur otomatis: kalau tidak ada sentuhan/kontrol selama batas waktu yang dipilih, volume
+     * dipelankan 20 detik lalu musik dijeda. Menyentuh app/notifikasi di tengah jalan membatalkannya.
+     */
+    private fun checkIdleSleep(now: Long) {
+        val limitMin = container.settings.current.idleSleepMin
+        if (limitMin <= 0 || idleJob?.isActive == true || container.sleepTimer.state.value.active) return
+        if (now - container.lastInteraction < limitMin * 60_000L) return
+        idleJob = scope.launch {
+            val startedAt = System.currentTimeMillis()
+            val steps = 40
+            for (i in steps downTo 0) {
+                if (container.lastInteraction > startedAt || !exo.isPlaying) {
+                    mixer.sleep = 1f
+                    return@launch
+                }
+                mixer.sleep = i / steps.toFloat()
+                delay(500)
+            }
+            exo.pause()
+            mixer.sleep = 1f
+            container.emitMessage("Musik dijeda karena lama tidak ada aktivitas")
         }
     }
 
@@ -376,7 +509,7 @@ class PlaybackService : MediaSessionService() {
         return fadeInStartedAt > 0 || nearEnd
     }
 
-    private fun flushListening() {
+    private fun flushListening(reason: Int = REASON_NONE) {
         val song = trackingSong ?: return
         val ms = listenedMs
         listenedMs = 0
@@ -385,12 +518,24 @@ class PlaybackService : MediaSessionService() {
         if (ms >= threshold) {
             container.appScope.launch { container.library.recordPlay(song, ms) }
         }
+        // Freease Pintar selalu belajar dari lewati/selesai, juga saat fiturnya sedang dimatikan.
+        if (reason != REASON_NONE) {
+            container.smart.onSongEnded(
+                song, ms,
+                manualSkip = reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK,
+                autoEnd = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT,
+            )
+        }
     }
 
     // ------------------------------------------------------------------ autoplay
 
     private fun maybeAutoplay() {
         trimPlayedHistory()
+        if (container.settings.current.smartMode) {
+            maybeSmart()
+            return
+        }
         val s = container.settings.current
         if (!s.autoplay || exo.repeatMode != Player.REPEAT_MODE_OFF || exo.mediaItemCount == 0) return
         if (exo.mediaItemCount >= MAX_QUEUE) return
@@ -406,6 +551,98 @@ class PlaybackService : MediaSessionService() {
             if (related.isEmpty()) return@launch
             val items = preparePlayback(related.map(MediaItems::fromSong))
             exo.addMediaItems(items)
+        }
+    }
+
+    // ------------------------------------------------------------------ Freease Pintar
+
+    private var smartJob: Job? = null
+    private var smartRetryAt = 0L
+    private var moodKick = false
+
+    /** Suasana diganti: buang sisipan lama di depan lalu langsung isi dengan pilihan bersuasana baru. */
+    private fun onMoodChanged() {
+        smartJob?.cancel()
+        smartRetryAt = 0
+        val index = exo.currentMediaItemIndex
+        for (i in exo.mediaItemCount - 1 downTo index + 1) {
+            if (MediaItems.isSmart(exo.getMediaItemAt(i))) exo.removeMediaItem(i)
+        }
+        moodKick = container.settings.current.smartMode && container.settings.current.smartMood.isNotEmpty()
+        maybeSmart()
+    }
+
+    /**
+     * Menjaga pola "beberapa lagu pilihanmu, lalu satu lagu pilihan Freease Pintar" di
+     * antrean ke depan, dan melanjutkan sebagai radio pintar saat antrean hampir habis.
+     * Hanya satu permintaan dalam satu waktu, maksimal 3 sisipan di depan.
+     */
+    private fun maybeSmart() {
+        val s = container.settings.current
+        if (!s.smartMode || exo.mediaItemCount == 0 || exo.repeatMode != Player.REPEAT_MODE_OFF) return
+        if (exo.currentMediaItem?.let(MediaItems::isLive) == true || exo.mediaItemCount >= MAX_QUEUE) return
+        if (smartJob?.isActive == true || System.currentTimeMillis() < smartRetryAt) return
+
+        // Urutan putar ke depan, sudah memperhitungkan mode acak.
+        val timeline = exo.currentTimeline
+        val order = ArrayList<Int>()
+        var cursor = exo.currentMediaItemIndex
+        while (order.size < 24) {
+            cursor = timeline.getNextWindowIndex(cursor, exo.repeatMode, exo.shuffleModeEnabled)
+            if (cursor == C.INDEX_UNSET) break
+            order += cursor
+        }
+        val smartAhead = order.count { MediaItems.isSmart(exo.getMediaItemAt(it)) }
+        val mood = SmartMood.byId(s.smartMood)
+        val gap = mood?.gap ?: container.smart.session.gap
+
+        var insertAt = -1
+        var count = 1
+        if (order.size <= 1) {
+            if (!s.autoplay || smartAhead >= 2) return
+            insertAt = exo.mediaItemCount
+            count = 3
+        } else if (smartAhead < 3) {
+            if (exo.shuffleModeEnabled) {
+                // Urutan acak tidak bisa ditentukan posisinya; cukup pastikan selalu ada satu di depan.
+                if (smartAhead >= 1) return
+                insertAt = exo.mediaItemCount
+            } else {
+                var run = 0
+                for (p in 0..order.size) {
+                    val smart = p < order.size && MediaItems.isSmart(exo.getMediaItemAt(order[p]))
+                    if (smart) { run = 0; continue }
+                    if (run >= gap) {
+                        insertAt = if (p < order.size) order[p] else exo.mediaItemCount
+                        break
+                    }
+                    if (p < order.size) run++
+                }
+            }
+        }
+        if (moodKick) {
+            insertAt = exo.currentMediaItemIndex + 1
+            count = 3
+        }
+        if (insertAt < 0) return
+
+        val snapshot = (0 until exo.mediaItemCount).map { MediaItems.toSong(exo.getMediaItemAt(it)) }
+        val index = exo.currentMediaItemIndex
+        val anchorId = exo.currentMediaItem?.mediaId
+        smartJob = scope.launch {
+            val picks = runCatching { container.smart.pick(snapshot, index, count, mood) }.getOrDefault(emptyList())
+            if (picks.isEmpty()) {
+                moodKick = false
+                smartRetryAt = System.currentTimeMillis() + 20_000
+                return@launch
+            }
+            if (exo.currentMediaItem?.mediaId != anchorId) {
+                handler.post { maybeSmart() } // lagu sudah berganti selama menunggu; hitung ulang
+                return@launch
+            }
+            moodKick = false
+            val items = preparePlayback(picks.map(MediaItems::fromSong))
+            exo.addMediaItems(insertAt.coerceAtMost(exo.mediaItemCount), items)
         }
     }
 
@@ -521,6 +758,9 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val ACTION_LIKE = "freease.LIKE"
+        const val ACTION_WIDGET = "freease.WIDGET"
+        const val EXTRA_CMD = "cmd"
+        private const val REASON_NONE = -1
         private const val MAX_FAILURES = 3
         private const val MAX_QUEUE = 300
         private const val KEEP_BEHIND = 30
