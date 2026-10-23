@@ -28,7 +28,10 @@ class FreeaseApp : Application(), SingletonImageLoader.Factory {
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(OkHttpNetworkFetcherFactory(callFactory = { container.httpClient })) }
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { container.httpClient }))
+                add(com.freease.music.data.local.LocalArtFetcher.Factory(this@FreeaseApp))
+            }
             .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.15).build() }
             .diskCache {
                 DiskCache.Builder()

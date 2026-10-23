@@ -16,6 +16,9 @@ data class Song(
     /** Terisi kalau lagu ini sisipan Freease Pintar; isinya alasan singkat kenapa dipilih. */
     val smartWhy: String? = null,
 ) {
+    /** Berkas musik dari penyimpanan HP (bukan YouTube). */
+    val isLocal: Boolean get() = id.startsWith("local:")
+
     val isSmartPick: Boolean get() = smartWhy != null
 
     /** Artwork resolusi tinggi untuk player, notifikasi, dan layar kunci. */
@@ -114,16 +117,19 @@ object Thumbs {
 
     /** Gambar YouTube Music (persegi) di-upscale; video YouTube pakai hq720 (16:9 tanpa bar hitam). */
     fun best(id: String, thumb: String?): String = when {
+        id.startsWith("local:") -> thumb ?: "localart://${id.removePrefix("local:")}"
         isGoogleArt(thumb) -> upscale(thumb!!, 1080)
         else -> "https://i.ytimg.com/vi/$id/hq720.jpg"
     }
 
     fun small(id: String, thumb: String?): String = when {
+        id.startsWith("local:") -> thumb ?: "localart://${id.removePrefix("local:")}"
         isGoogleArt(thumb) -> upscale(thumb!!, 226)
         else -> "https://i.ytimg.com/vi/$id/mqdefault.jpg"
     }
 
-    fun fallback(id: String): String = "https://i.ytimg.com/vi/$id/mqdefault.jpg"
+    fun fallback(id: String): String =
+        if (id.startsWith("local:")) "localart://${id.removePrefix("local:")}" else "https://i.ytimg.com/vi/$id/mqdefault.jpg"
 
     fun upscale(url: String, size: Int): String = when {
         sizedGoogle.containsMatchIn(url) -> url.replace(sizedGoogle, "=w$size-h$size-l90-rj")

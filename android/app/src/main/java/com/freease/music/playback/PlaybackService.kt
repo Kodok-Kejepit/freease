@@ -350,6 +350,7 @@ class PlaybackService : MediaSessionService() {
     private fun swapCurrent(video: Boolean) {
         val item = exo.currentMediaItem ?: return
         if (MediaItems.isLive(item) || MediaItems.isVideo(item) == video) return
+        if (com.freease.music.data.local.LocalSongs.isLocal(item.mediaId)) return
         val index = exo.currentMediaItemIndex
         val position = exo.currentPosition
         scope.launch {
@@ -384,7 +385,11 @@ class PlaybackService : MediaSessionService() {
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && container.settings.current.crossfadeSec > 0) {
                 fadeInStartedAt = System.currentTimeMillis()
             }
-            mediaItem?.let { if (MediaItems.isVideo(it) != container.videoMode.value) swapCurrent(container.videoMode.value) }
+            mediaItem?.let {
+                if (!com.freease.music.data.local.LocalSongs.isLocal(it.mediaId) && MediaItems.isVideo(it) != container.videoMode.value) {
+                    swapCurrent(container.videoMode.value)
+                }
+            }
             updateLikeButton()
             updateWidget()
             maybeAutoplay()

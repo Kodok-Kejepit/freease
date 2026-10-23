@@ -37,7 +37,7 @@ class DownloadManager(private val context: Context, private val scope: Coroutine
 
     fun download(songs: List<Song>, unmeteredOnly: Boolean = false) = scope.launch {
         val c = app.container
-        songs.filter { !it.isLive }.forEach { song ->
+        songs.filter { !it.isLive && !it.isLocal }.forEach { song ->
             c.library.save(song)
             val existing = c.db.songs().get(song.id)
             if (existing?.downloadState == DownloadState.DONE && existing.downloadPath?.let { File(it).exists() } == true) return@forEach

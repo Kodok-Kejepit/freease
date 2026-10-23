@@ -75,6 +75,7 @@ class AppContainer(private val context: Context) {
     val downloads = DownloadManager(context, appScope)
     val loudness = com.freease.music.playback.loudness.LoudnessStore(File(context.filesDir, "loudness.json"))
     val importer = com.freease.music.data.importer.ImportManager(httpClient, youtube, library, appScope)
+    val localMusic = com.freease.music.data.local.LocalMusicRepository(context)
     val queueStore = QueueStore(context)
 
     /** Data belajar Freease Pintar (database terpisah, dibuka hanya saat pertama dipakai). */

@@ -35,12 +35,13 @@ class LyricsFinder(private val ytm: MusicLyricsSource, private val lrc: LrcSourc
         val artist = TitleCleaner.cleanArtist(song.artist)
 
         // 1. Lirik video ini sendiri.
-        val info = net { ytm.watchInfo(song.id) }
+        val info = if (song.isLocal) null else net { ytm.watchInfo(song.id) }
         val own = info?.lyricsId?.let { id -> net { ytm.lyrics(id) } }
         if (own != null && own.timed) {
             return Lyrics(own.lines, null, own.source ?: SOURCE_YTM, timingTrusted = true)
         }
-        val isAudio = info?.isAudioTrack == true
+        // Berkas musik di HP hampir selalu versi album/audio resmi.
+        val isAudio = info?.isAudioTrack == true || song.isLocal
 
         // 2. Bukan versi audio resmi: pinjam lirik bertanda waktu dari versi audionya.
         var ref: MusicTrack? = null

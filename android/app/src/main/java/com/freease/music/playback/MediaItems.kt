@@ -97,6 +97,9 @@ object MediaItems {
         val id = item.mediaId
         val b = item.buildUpon()
         when {
+            // Berkas di HP: langsung diputar dari MediaStore, tidak pernah mode video.
+            com.freease.music.data.local.LocalSongs.isLocal(id) ->
+                b.setUri(com.freease.music.data.local.LocalSongs.contentUri(id)).setCustomCacheKey(null)
             isLive(item) -> b.setUri("$SCHEME://$HOST_LIVE/$id").setCustomCacheKey(null)
             video -> b.setUri("$SCHEME://$HOST_VIDEO/$id?q=${quality.name}&h=$videoHeight")
                 .setCustomCacheKey(audioKey(id, quality))

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -148,6 +149,14 @@ fun LibraryScreen() {
                             Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF0FB57D), Color(0xFF0D5E91)))),
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Rounded.DownloadDone, null, tint = Color.White, modifier = Modifier.size(30.dp)) }
+                    }
+                }
+                item {
+                    FixedRow("Musik di HP", "MP3, FLAC, M4A yang tersimpan di HP", onClick = { actions.navigate(Routes.LOCAL_MUSIC) }) {
+                        Box(
+                            Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFFFF8A3D), Color(0xFFB4235A)))),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Rounded.PhoneAndroid, null, tint = Color.White, modifier = Modifier.size(30.dp)) }
                     }
                 }
             }

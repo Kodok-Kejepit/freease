@@ -145,11 +145,11 @@ fun PlayerScreen(onCollapse: () -> Unit) {
                 ) {
                     TopBar(onCollapse = onCollapse, onMore = { actions.showMenu(song) })
                     Spacer(Modifier.height(8.dp))
-                    if (!song.isLive) {
+                    if (!song.isLive && !song.isLocal) {
                         ModeToggle(videoMode, onChange = { actions.container.videoMode.value = it }, Modifier.align(Alignment.CenterHorizontally))
                     }
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        if (videoMode || song.isLive) {
+                        if ((videoMode && !song.isLocal) || song.isLive) {
                             VideoSurface(state, onFullscreen = { fullscreen = true })
                         } else {
                             SwipeArtwork(song, state)

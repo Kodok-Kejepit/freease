@@ -147,7 +147,7 @@ fun SongMenuSheet(request: SongMenuRequest, onDismiss: () -> Unit) {
                     run { actions.player.remove(request.queueIndex) }
                 }
             }
-            if (!song.isLive) {
+            if (!song.isLive && !song.isLocal) {
                 when (dlState) {
                     DownloadState.DONE -> SheetAction(Icons.Rounded.DownloadDone, "Hapus unduhan", tint = Freease.accent.primary) {
                         run { actions.container.downloads.remove(song.id) }
@@ -160,7 +160,7 @@ fun SongMenuSheet(request: SongMenuRequest, onDismiss: () -> Unit) {
                     }
                 }
             }
-            SheetAction(Icons.Rounded.Radio, "Mulai radio lagu") {
+            if (!song.isLocal) SheetAction(Icons.Rounded.Radio, "Mulai radio lagu") {
                 run { actions.player.startRadio(song) }
             }
             if (song.artistUrl != null) {
@@ -171,7 +171,7 @@ fun SongMenuSheet(request: SongMenuRequest, onDismiss: () -> Unit) {
                     run { scope.launch { actions.library.removeFromPlaylist(request.playlistId, song.id) } }
                 }
             }
-            SheetAction(Icons.Rounded.Share, "Bagikan") { run { actions.share(song) } }
+            if (!song.isLocal) SheetAction(Icons.Rounded.Share, "Bagikan") { run { actions.share(song) } }
             Spacer(Modifier.height(12.dp))
         }
     }
