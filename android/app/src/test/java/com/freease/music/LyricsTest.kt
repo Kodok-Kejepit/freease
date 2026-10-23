@@ -13,6 +13,7 @@ import com.freease.music.data.lyrics.MusicLyricsSource
 import com.freease.music.data.lyrics.MusicTrack
 import com.freease.music.data.lyrics.WatchInfo
 import com.freease.music.data.lyrics.YtmParse
+import com.freease.music.data.lyrics.align.alignedWith
 import com.freease.music.data.model.LyricLine
 import com.freease.music.data.model.Lyrics
 import com.freease.music.data.model.Song
@@ -438,5 +439,231 @@ class LyricsRepositoryTest {
     @Test fun encodeDecodeRoundTrip() {
         val l = Lyrics(listOf(LyricLine(1, "a")), "a", "Sumber: LRCLIB", offsetMs = -500, timingTrusted = false, userSynced = true)
         assertEquals(l, LyricsRepository.decode(LyricsRepository.encode(l)))
+        val synced = l.copy(timingRefId = "ref", autoSync = Lyrics.AutoSync.DONE, approxTiming = true)
+        assertEquals(synced, LyricsRepository.decode(LyricsRepository.encode(synced)))
+    }
+}
+
+class LyricsAutoSyncTest {
+    private val timed = YtmParse.lyrics(json("lyrics_timed.json"))!!
+    private val static = YtmParse.lyrics(json("lyrics_static.json"))!!
+    private val tracks = YtmParse.songs(json("search_songs.json"))
+    private val ytm = FakeYtm(
+        info = mapOf(
+            ATV.id to WatchInfo("MUSIC_VIDEO_TYPE_ATV", "L_ATV"),
+            OMV.id to WatchInfo("MUSIC_VIDEO_TYPE_OMV", "L_OMV"),
+        ),
+        lyrics = mapOf("L_ATV" to timed, "L_OMV" to static),
+        search = tracks,
+    )
+
+    private fun tempDir() = java.io.File(Files.createTempDirectory("lyr").toFile(), "lyrics3")
+
+    /** Peta sederhana: seluruh lagu digeser [shiftMs] (mis. intro video klip). */
+    private fun shifted(shiftMs: Long) = com.freease.music.data.lyrics.align.AlignmentMap(
+        listOf(com.freease.music.data.lyrics.align.AlignmentMap.Segment(Long.MIN_VALUE / 4, Long.MAX_VALUE / 4, shiftMs)),
+        confidence = 0.9,
+        videoDurationMs = 289_000,
+    )
+
+    @Test fun musicVideoRemembersWhichRecordingTheTimingBelongsTo() {
+        val l = LyricsFinder(ytm, FakeLrc()).find(OMV)
+        assertFalse(l.canFollow)
+        assertEquals(ATV.id, l.timingRefId)
+        assertTrue(l.canAutoSync)
+        // Versi audio sendiri tidak perlu diselaraskan.
+        assertNull(LyricsFinder(ytm, FakeLrc()).find(ATV).timingRefId)
+    }
+
+    @Test fun musicVideoLyricsFollowAutomaticallyAfterAudioSync() {
+        val calls = AtomicInteger()
+        val dir = tempDir()
+        val repo = LyricsRepository(
+            LyricsFinder(ytm, FakeLrc()), dir, Dispatchers.Unconfined,
+            autoSync = { video, ref, _ ->
+                calls.incrementAndGet()
+                assertEquals(OMV.id, video)
+                assertEquals(ATV.id, ref)
+                com.freease.music.data.lyrics.align.AutoSyncResult.Aligned(shifted(42_000))
+            },
+        )
+        val state = repo.state(OMV.id)
+        repo.ensure(OMV)
+        val l = (state.value as LyricsState.Ready).lyrics
+        assertTrue(l.canFollow)
+        assertEquals(Lyrics.AutoSync.DONE, l.autoSync)
+        assertEquals(timed.lines[1].timeMs + 42_000, l.synced!![1].timeMs)
+        assertEquals(1, calls.get())
+
+        // Dibuka lagi (app dimulai ulang): langsung dari disk, tidak diselaraskan ulang.
+        val again = LyricsRepository(
+            LyricsFinder(FakeYtm(fail = IOException("offline")), FakeLrc()), dir, Dispatchers.Unconfined,
+            autoSync = { _, _, _ -> calls.incrementAndGet(); error("tidak boleh dipanggil") },
+        )
+        val s2 = again.state(OMV.id)
+        again.ensure(OMV)
+        assertTrue((s2.value as LyricsState.Ready).lyrics.canFollow)
+        assertEquals(1, calls.get())
+    }
+
+    @Test fun differentRecordingFallsBackToTapSyncWithoutRetrying() {
+        val calls = AtomicInteger()
+        val repo = LyricsRepository(
+            LyricsFinder(ytm, FakeLrc()), tempDir(), Dispatchers.Unconfined,
+            autoSync = { _, _, _ -> calls.incrementAndGet(); com.freease.music.data.lyrics.align.AutoSyncResult.NotMatching },
+        )
+        val state = repo.state(OMV.id)
+        repo.ensure(OMV)
+        repo.ensure(OMV)
+        val ready = state.value as LyricsState.Ready
+        assertFalse(ready.syncing)
+        assertFalse(ready.lyrics.canFollow)
+        assertEquals(Lyrics.AutoSync.NOT_MATCHING, ready.lyrics.autoSync)
+        assertEquals(1, calls.get())
+    }
+
+    @Test fun networkErrorRetriesOnlyAfterAWhile() {
+        var now = 1_000_000L
+        val calls = AtomicInteger()
+        val repo = LyricsRepository(
+            LyricsFinder(ytm, FakeLrc()), tempDir(), Dispatchers.Unconfined, clock = { now },
+            autoSync = { _, _, _ -> calls.incrementAndGet(); com.freease.music.data.lyrics.align.AutoSyncResult.Error(IOException("offline")) },
+        )
+        val state = repo.state(OMV.id)
+        repo.ensure(OMV)
+        repo.ensure(OMV)
+        assertEquals(1, calls.get())
+        assertEquals(Lyrics.AutoSync.NONE, (state.value as LyricsState.Ready).lyrics.autoSync)
+        now += 3 * 60_000
+        repo.ensure(OMV)
+        assertEquals(2, calls.get())
+    }
+
+    @Test fun userTapDuringSyncWins() {
+        val gate = CountDownLatch(1)
+        val exec = Executors.newFixedThreadPool(2).asCoroutineDispatcher()
+        val done = CountDownLatch(1)
+        val repo = LyricsRepository(
+            LyricsFinder(ytm, FakeLrc()), tempDir(), exec,
+            autoSync = { _, _, _ ->
+                gate.await(5, TimeUnit.SECONDS)
+                com.freease.music.data.lyrics.align.AutoSyncResult.Aligned(shifted(42_000)).also { done.countDown() }
+            },
+        )
+        val state = repo.state(OMV.id)
+        repo.ensure(OMV)
+        runBlocking { repo.get(OMV) }
+        val deadline = System.currentTimeMillis() + 3_000
+        while ((state.value as? LyricsState.Ready)?.syncing != true && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        assertTrue((state.value as LyricsState.Ready).syncing)
+        repo.setSync(OMV.id, 30_000, userSynced = true)
+        gate.countDown()
+        done.await(5, TimeUnit.SECONDS)
+        Thread.sleep(100)
+        val l = (state.value as LyricsState.Ready).lyrics
+        assertEquals(30_000L, l.offsetMs)
+        assertEquals(timed.lines[1].timeMs, l.synced!![1].timeMs)
+        exec.close()
+    }
+
+    @Test fun nearlySameLengthVideoFollowsRightAwayWhileSyncing() {
+        // Video 250 dtk vs versi audio 247 dtk: lirik langsung berjalan (perkiraan), lalu diselaraskan.
+        val near = Song("vidNear", "Pura Pura Lupa", "Mahen", durationSec = 252)
+        val y = FakeYtm(
+            info = mapOf("vidNear" to WatchInfo("MUSIC_VIDEO_TYPE_OMV", null), ATV.id to WatchInfo("MUSIC_VIDEO_TYPE_ATV", "L_ATV")),
+            lyrics = mapOf("L_ATV" to timed), search = tracks,
+        )
+        val l = LyricsFinder(y, FakeLrc()).find(near)
+        assertFalse(l.timingTrusted)
+        assertTrue(l.approxTiming)
+        assertTrue(l.canFollow)
+        assertFalse(l.exactTiming)
+        assertTrue(l.canAutoSync)
+        // Video live tidak ikut berjalan walau durasinya mirip.
+        val live = near.copy(id = "vidLive", title = "Pura Pura Lupa (Live)")
+        val y2 = FakeYtm(
+            info = mapOf("vidLive" to WatchInfo("MUSIC_VIDEO_TYPE_OMV", null), ATV.id to WatchInfo("MUSIC_VIDEO_TYPE_ATV", "L_ATV")),
+            lyrics = mapOf("L_ATV" to timed), search = tracks,
+        )
+        assertFalse(LyricsFinder(y2, FakeLrc()).find(live).approxTiming)
+    }
+
+    @Test fun cutPartOfTheSongIsSkippedNotShownAtTheWrongTime() {
+        val l = Lyrics((0 until 10).map { LyricLine(it * 10_000L, "baris $it") }, null, timingTrusted = false, timingRefId = "ref")
+        // Video: intro 5 dtk; bagian acuan 40–60 dtk dipotong.
+        val map = com.freease.music.data.lyrics.align.AlignmentMap(
+            listOf(
+                com.freease.music.data.lyrics.align.AlignmentMap.Segment(Long.MIN_VALUE / 4, 40_000, 5_000),
+                com.freease.music.data.lyrics.align.AlignmentMap.Segment(60_000, Long.MAX_VALUE / 4, -15_000),
+            ),
+            confidence = 0.9, videoDurationMs = 200_000,
+        )
+        val out = l.alignedWith(map)!!
+        assertEquals(listOf(5_000L, 15_000L, 25_000L, 35_000L, 45_000L, 55_000L, 65_000L, 75_000L), out.synced!!.map { it.timeMs })
+        assertTrue(out.canFollow)
+    }
+}
+
+/** Penyelaras dengan audio sintetis (nada + ketukan acak), tanpa berkas dari luar. */
+class AlignerTest {
+    private val rate = 16_000
+
+    /** Lagu acak yang deterministik: nada dari tangga nada + ketukan noise. */
+    private fun song(seconds: Int, seed: Long): FloatArray {
+        val rnd = java.util.Random(seed)
+        val out = FloatArray(seconds * rate)
+        val scale = doubleArrayOf(220.0, 247.0, 262.0, 294.0, 330.0, 349.0, 392.0, 440.0, 494.0, 523.0)
+        var t = 0
+        while (t < out.size) {
+            val len = (rate * (0.12 + rnd.nextDouble() * 0.4)).toInt()
+            val f = scale[rnd.nextInt(scale.size)] * (if (rnd.nextBoolean()) 2 else 1)
+            val drum = rnd.nextInt(3) == 0
+            for (i in 0 until len) {
+                if (t + i >= out.size) break
+                val env = Math.exp(-i / (rate * 0.15))
+                var s = 0.3 * env * Math.sin(2 * Math.PI * f * i / rate)
+                if (drum && i < rate / 20) s += 0.4 * (rnd.nextDouble() * 2 - 1) * Math.exp(-i / (rate * 0.01))
+                out[t + i] += s.toFloat()
+            }
+            t += len
+        }
+        return out
+    }
+
+    private fun features(pcm: FloatArray): com.freease.music.data.lyrics.align.AudioFeatures {
+        val ex = com.freease.music.data.lyrics.align.AudioFeatureExtractor(rate, 1)
+        ex.feed(pcm, pcm.size)
+        return ex.finish()
+    }
+
+    @Test fun findsIntroShiftAndRejectsOtherSong() {
+        val ref = song(90, 1)
+        val intro = song(9, 99).map { it * 0.5f }
+        val video = (intro + ref.map { it * 0.7f }).toFloatArray()
+        val map = com.freease.music.data.lyrics.align.Aligner.align(features(ref), features(video))!!
+        val introMs = 9_000L
+        for (t in listOf(2_000L, 45_000L, 85_000L)) {
+            val got = map.map(t)!!
+            assertTrue("acuan $t → $got", kotlin.math.abs(got - (t + introMs)) <= 40)
+        }
+        assertNull(com.freease.music.data.lyrics.align.Aligner.align(features(ref), features(song(90, 7))))
+    }
+
+    @Test fun fftMatchesNaiveDft() {
+        val n = 64
+        val re = FloatArray(n) { kotlin.math.sin(it * 0.7f) + 0.3f * kotlin.math.cos(it * 2.1f) }
+        val im = FloatArray(n)
+        val expRe = DoubleArray(n)
+        val expIm = DoubleArray(n)
+        for (k in 0 until n) for (t in 0 until n) {
+            val a = -2 * Math.PI * k * t / n
+            expRe[k] += re[t] * Math.cos(a)
+            expIm[k] += re[t] * Math.sin(a)
+        }
+        com.freease.music.data.lyrics.align.Fft(n).transform(re, im)
+        for (k in 0 until n) {
+            assertEquals(expRe[k], re[k].toDouble(), 1e-3)
+            assertEquals(expIm[k], im[k].toDouble(), 1e-3)
+        }
     }
 }

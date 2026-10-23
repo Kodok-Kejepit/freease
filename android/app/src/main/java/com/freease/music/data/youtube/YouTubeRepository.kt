@@ -268,6 +268,21 @@ class YouTubeRepository {
         )
     }
 
+    /**
+     * Audio paling hemat untuk penyelarasan lirik. Opus diutamakan: decoder-nya membuang jeda awal
+     * codec dengan tepat, jadi waktunya sama persis dengan yang didengar di player.
+     */
+    fun pickAlignmentAudio(info: StreamData): ResolvedStream? {
+        val pool = info.audioStreams
+            .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+            .filter { it.audioTrackType == null || it.audioTrackType == AudioTrackType.ORIGINAL }
+            .ifEmpty { info.audioStreams.filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP } }
+        val chosen = pool.filter { it.format == MediaFormat.WEBMA_OPUS }.minByOrNull { it.averageBitrate }
+            ?: pool.minByOrNull { it.averageBitrate }
+            ?: return null
+        return ResolvedStream(chosen.content, chosen.format?.mimeType, chosen.averageBitrate, "align")
+    }
+
     fun pickVideo(info: StreamData, maxHeight: Int): ResolvedStream? {
         fun codecRank(v: VideoStream): Int {
             val c = v.codec?.lowercase() ?: ""

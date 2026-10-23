@@ -109,6 +109,11 @@ object LyricsMatch {
 
     fun sameCut(a: Long, b: Long): Boolean = a > 0 && b > 0 && abs(a - b) <= SAME_CUT_SEC
 
+    /** Durasi hampir sama (beda intro/outro beberapa detik): waktu lirik kira-kira masih pas. */
+    fun nearCut(a: Long, b: Long): Boolean = a > 0 && b > 0 && abs(a - b) <= NEAR_CUT_SEC
+
+    const val NEAR_CUT_SEC = 8L
+
     // ------------------------------------------------------------------ LRCLIB
 
     class LrcPick(val entry: LrcEntry, val support: Int, val typicalDurationSec: Long?)
@@ -146,6 +151,18 @@ object LyricsMatch {
             refDurationSec != null -> sameCut(durationSec, refDurationSec) && (typical == null || abs(typical - refDurationSec) <= 3)
             else -> typical != null && sameCut(typical, durationSec)
         }
+    }
+
+    /**
+     * Waktu lirik LRCLIB ini kemungkinan dibuat untuk rekaman berdurasi [recordingSec] (versi lagu resmi),
+     * sehingga bisa diselaraskan otomatis dari rekaman itu ke video yang diputar.
+     */
+    fun lrcFitsRecording(pick: LrcPick, recordingSec: Long): Boolean {
+        val lines = pick.entry.synced ?: return false
+        if (recordingSec <= 0) return false
+        if ((lines.lastOrNull()?.timeMs ?: 0) > recordingSec * 1000 + 2_000) return false
+        val typical = pick.typicalDurationSec
+        return typical == null || abs(typical - recordingSec) <= 3
     }
 
     /** Sidik isi lirik tersinkron: jumlah baris + waktu beberapa baris awal (dibulatkan 0,1 dtk). */

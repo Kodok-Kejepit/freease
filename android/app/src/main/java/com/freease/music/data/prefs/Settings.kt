@@ -43,6 +43,8 @@ data class AppSettings(
     val region: String = "ID",
     val downloadWifiOnly: Boolean = false,
     val showLyricsCard: Boolean = true,
+    /** Selaraskan lirik video klip otomatis lewat suaranya (unduh ±1,5 MB audio per lagu, sekali saja). */
+    val autoSyncLyrics: Boolean = true,
     val resumeOnStart: Boolean = true,
     val smartMode: Boolean = true,
     /** Suasana Freease Pintar: "" (biasa), "focus", "chill", "workout", "sleep". */
@@ -78,6 +80,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val region = stringPreferencesKey("region")
         val wifiOnly = booleanPreferencesKey("dl_wifi_only")
         val lyricsCard = booleanPreferencesKey("lyrics_card")
+        val autoSyncLyrics = booleanPreferencesKey("auto_sync_lyrics")
         val resume = booleanPreferencesKey("resume_on_start")
         val smart = booleanPreferencesKey("smart_mode")
         val mood = stringPreferencesKey("smart_mood")
@@ -107,6 +110,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         region = p[K.region] ?: "ID",
         downloadWifiOnly = p[K.wifiOnly] ?: false,
         showLyricsCard = p[K.lyricsCard] ?: true,
+        autoSyncLyrics = p[K.autoSyncLyrics] ?: true,
         resumeOnStart = p[K.resume] ?: true,
         smartMode = p[K.smart] ?: true,
         smartMood = p[K.mood] ?: "",
@@ -151,6 +155,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setRegion(v: String) = edit { it[K.region] = v }
     fun setDownloadWifiOnly(v: Boolean) = edit { it[K.wifiOnly] = v }
     fun setShowLyricsCard(v: Boolean) = edit { it[K.lyricsCard] = v }
+    fun setAutoSyncLyrics(v: Boolean) = edit { it[K.autoSyncLyrics] = v }
     fun setResumeOnStart(v: Boolean) = edit { it[K.resume] = v }
     fun setSmartMode(v: Boolean) = edit { it[K.smart] = v }
     fun setSmartMood(v: String) = edit { it[K.mood] = v }

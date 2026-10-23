@@ -52,7 +52,14 @@ class LyricsFinder(private val ytm: MusicLyricsSource, private val lrc: LrcSourc
             }
             if (ref != null && refLyrics != null && refLyrics.timed) {
                 val sameRecording = LyricsMatch.sameCut(dur, ref.durationSec) && !LyricsMatch.isOtherVersion(song.title, ref.title)
-                return Lyrics(refLyrics.lines, null, refLyrics.source ?: SOURCE_YTM, timingTrusted = sameRecording)
+                return Lyrics(
+                    refLyrics.lines, null, refLyrics.source ?: SOURCE_YTM,
+                    timingTrusted = sameRecording,
+                    // Waktunya milik versi lagu: bisa diselaraskan otomatis ke video ini lewat suaranya.
+                    timingRefId = if (sameRecording) null else ref.videoId,
+                    approxTiming = !sameRecording && LyricsMatch.nearCut(dur, ref.durationSec) &&
+                        !LyricsMatch.isOtherVersion(song.title, ref.title),
+                )
             }
         }
 
@@ -75,7 +82,13 @@ class LyricsFinder(private val ytm: MusicLyricsSource, private val lrc: LrcSourc
         if (pick?.entry?.synced != null) {
             val trusted = LyricsMatch.trustLrc(pick, dur, isAudio, ref?.durationSec) &&
                 !LyricsMatch.isOtherVersion(song.title, pick.entry.title)
-            return Lyrics(pick.entry.synced, pick.entry.plain, SOURCE_LRCLIB, timingTrusted = trusted)
+            val refId = ref?.takeIf { !trusted && LyricsMatch.lrcFitsRecording(pick, it.durationSec) }?.videoId
+            val approx = !trusted && LyricsMatch.nearCut(dur, LyricsMatch.lrcSongSec(pick)) &&
+                !LyricsMatch.isOtherVersion(song.title, pick.entry.title)
+            return Lyrics(
+                pick.entry.synced, pick.entry.plain, SOURCE_LRCLIB,
+                timingTrusted = trusted, timingRefId = refId, approxTiming = approx,
+            )
         }
 
         // 4. Teks saja.

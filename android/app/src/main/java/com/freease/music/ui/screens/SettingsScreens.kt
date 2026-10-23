@@ -246,6 +246,14 @@ fun SettingsScreen() {
         item { SwitchItem("Putar otomatis", "Lanjutkan dengan lagu serupa saat antrean habis", s.autoplay, c.settings::setAutoplay) }
         item { SwitchItem("Lanjutkan antrean terakhir", "Saat aplikasi dibuka lagi", s.resumeOnStart, c.settings::setResumeOnStart) }
         item { SwitchItem("Kartu lirik di player", null, s.showLyricsCard, c.settings::setShowLyricsCard) }
+        item {
+            SwitchItem(
+                "Sinkron lirik otomatis",
+                "Untuk video klip: lirik dicocokkan dengan suara video (±1,5 MB sekali per lagu)",
+                s.autoSyncLyrics,
+                c.settings::setAutoSyncLyrics,
+            )
+        }
 
         item { Group("Tampilan") }
         item {

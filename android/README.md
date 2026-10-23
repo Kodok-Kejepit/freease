@@ -26,7 +26,11 @@ YouTube & YouTube Music. Native Android: **Kotlin + Jetpack Compose + Media3 (Ex
 - Lagu yang Disukai, playlist buatan sendiri (sampul mozaik, ubah nama, sematkan, urutkan, hapus), artis yang diikuti
 - Unduhan offline (berjalan di latar belakang, opsi khusus Wi-Fi)
 - Riwayat putar per hari, **Rekap Kamu** (total menit, grafik harian, artis & lagu teratas)
-- Lirik tersinkron (LRCLIB): kartu lirik di player + layar lirik penuh, ketuk baris untuk lompat
+- Lirik berjalan ala Spotify (YouTube Music / LyricFind, cadangan LRCLIB): kartu lirik yang bergulir halus
+  di player + layar lirik penuh, titik "• • •" saat intro/jeda, ketuk baris untuk lompat
+- **Sinkron lirik otomatis untuk video klip**: waktu lirik dibuat untuk versi lagu, jadi Freease
+  mencocokkan suara video dengan suara versi lagunya (intro, adegan sisipan, bagian terpotong ikut
+  terdeteksi) lalu menggeser tiap baris ke waktu yang pas. Sekali per video (±1,5 MB), hasilnya disimpan.
 
 **Tampilan**
 - Tema gelap dengan 6 warna aksen (Aurora, Mint, Sunset, Ocean, Lime, Rose), mode AMOLED

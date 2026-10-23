@@ -45,16 +45,31 @@ class LrcLib(private val client: OkHttpClient) : LrcSource {
         val req = Request.Builder().url(url)
             .header("User-Agent", "Freease/1.1 (https://github.com/Kodok-Kejepit/freease)")
             .build()
-        val body = client.newCall(req).execute().use { r ->
-            if (r.code == 404) return emptyList()
-            if (!r.isSuccessful) throw HttpStatusException(r.code, "LRCLIB HTTP ${r.code}")
-            r.body?.string() ?: throw IOException("LRCLIB: balasan kosong")
+        var attempt = 0
+        val body: String
+        while (true) {
+            val result = client.newCall(req).execute().use { r ->
+                when {
+                    r.code == 404 -> return emptyList()
+                    r.isSuccessful -> r.body?.string() ?: throw IOException("LRCLIB: balasan kosong")
+                    // Server sibuk (503/429/5xx) sering pulih dalam hitungan detik: coba sekali lagi.
+                    (r.code == 429 || r.code >= 500) && attempt == 0 -> null
+                    else -> throw HttpStatusException(r.code, "LRCLIB HTTP ${r.code}")
+                }
+            }
+            if (result != null) {
+                body = result
+                break
+            }
+            attempt++
+            Thread.sleep(RETRY_DELAY_MS)
         }
         val arr = runCatching { JSONArray(body) }.getOrElse { throw IOException("LRCLIB: balasan rusak") }
         return (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let(::entry) }
     }
 
     companion object {
+        private const val RETRY_DELAY_MS = 900L
         private val lineRe = Regex("^\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?](.*)$")
 
         fun entry(o: JSONObject): LrcEntry? {

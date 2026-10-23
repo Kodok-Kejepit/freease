@@ -45,7 +45,14 @@ class LyricsProbe {
                     l.isEmpty -> "tidak ada lirik"
                     l.synced != null -> {
                         val first = l.synced!!.firstOrNull { it.text.isNotBlank() && it.text != "♪" }
-                        "sinkron=${if (l.canFollow) "OTOMATIS" else "PERLU-KETUK"} baris=${l.synced!!.size} " +
+                        val mode = when {
+                            l.exactTiming -> "PAS"
+                            l.canFollow && l.canAutoSync -> "JALAN(perkiraan)+SINKRON-SUARA"
+                            l.canFollow -> "JALAN(perkiraan)"
+                            l.canAutoSync -> "SINKRON-SUARA(lalu jalan)"
+                            else -> "PERLU-KETUK"
+                        }
+                        "sinkron=$mode baris=${l.synced!!.size} " +
                             "pertama=${first?.timeMs}ms '${first?.text}' | ${l.source}"
                     }
                     else -> "teks saja (${l.text.lines().size} baris) | ${l.source}"

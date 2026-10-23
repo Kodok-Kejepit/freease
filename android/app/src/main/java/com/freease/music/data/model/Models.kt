@@ -68,11 +68,33 @@ data class Lyrics(
     val timingTrusted: Boolean = true,
     /** Pengguna sudah menyelaraskan sendiri (ketuk baris yang sedang dinyanyikan / geser manual). */
     val userSynced: Boolean = false,
+    /** Video id rekaman yang menjadi acuan waktu lirik ini (versi lagu resmi), kalau beda dengan yang diputar. */
+    val timingRefId: String? = null,
+    /** Status penyelarasan otomatis berbasis suara: lihat [AutoSync]. */
+    val autoSync: Int = AutoSync.NONE,
+    /**
+     * Waktunya belum dijamin pas, tapi durasi rekamannya hampir sama dengan video ini (selisih beberapa
+     * detik), jadi lirik tetap boleh berjalan sambil menunggu penyelarasan yang tepat.
+     */
+    val approxTiming: Boolean = false,
 ) {
+    object AutoSync {
+        const val NONE = 0
+        const val DONE = 1
+        const val NOT_MATCHING = 2
+    }
+
+    /** Waktunya belum cocok dengan video ini, tapi bisa diselaraskan otomatis dari rekaman acuannya. */
+    val canAutoSync: Boolean
+        get() = !synced.isNullOrEmpty() && !timingTrusted && !userSynced && timingRefId != null && autoSync == AutoSync.NONE
+
     val isEmpty: Boolean get() = synced.isNullOrEmpty() && plain.isNullOrBlank()
 
     /** Baris boleh disorot dan digulir mengikuti lagu. */
-    val canFollow: Boolean get() = !synced.isNullOrEmpty() && (timingTrusted || userSynced)
+    val canFollow: Boolean get() = !synced.isNullOrEmpty() && (timingTrusted || userSynced || approxTiming)
+
+    /** Waktunya dijamin pas (bukan sekadar perkiraan). */
+    val exactTiming: Boolean get() = !synced.isNullOrEmpty() && (timingTrusted || userSynced)
 
     /** Teks lengkap untuk tampilan tanpa sinkron. */
     val text: String get() = plain?.takeIf { it.isNotBlank() } ?: synced.orEmpty().joinToString("\n") { it.text }

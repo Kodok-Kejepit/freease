@@ -11,7 +11,9 @@ import androidx.media3.datasource.cache.SimpleCache
 import com.freease.music.data.LibraryRepository
 import com.freease.music.data.db.FreeaseDatabase
 import com.freease.music.data.download.DownloadManager
+import com.freease.music.data.db.DownloadState
 import com.freease.music.data.lyrics.LyricsRepository
+import com.freease.music.data.lyrics.align.LyricsAutoSync
 import com.freease.music.data.prefs.SettingsRepository
 import com.freease.music.data.youtube.NewPipeHttp
 import com.freease.music.data.youtube.StreamHeadersInterceptor
@@ -61,7 +63,15 @@ class AppContainer(private val context: Context) {
     val db: FreeaseDatabase = FreeaseDatabase.build(context)
     val youtube = YouTubeRepository()
     val library = LibraryRepository(db)
-    val lyrics = LyricsRepository(httpClient, File(context.filesDir, "lyrics3")) { settings.current.region }
+    val lyrics = LyricsRepository(
+        httpClient,
+        File(context.filesDir, "lyrics3"),
+        region = { settings.current.region },
+        autoSync = LyricsAutoSync(youtube, streamClient, File(context.cacheDir, "align")) { id ->
+            db.songs().get(id)?.takeIf { it.downloadState == DownloadState.DONE }?.downloadPath?.let(::File)
+        },
+        autoSyncEnabled = { settings.current.autoSyncLyrics && (!settings.current.saverOnCellular || !isMetered()) },
+    )
     val downloads = DownloadManager(context, appScope)
     val queueStore = QueueStore(context)
 

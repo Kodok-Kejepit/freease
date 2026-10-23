@@ -1,5 +1,8 @@
 package com.freease.music.data.lyrics
 
+import com.freease.music.data.lyrics.align.AutoSyncResult
+import com.freease.music.data.lyrics.align.LyricsAutoSync
+import com.freease.music.data.lyrics.align.alignedWith
 import com.freease.music.data.model.LyricLine
 import com.freease.music.data.model.Lyrics
 import com.freease.music.data.model.Song
@@ -20,7 +23,8 @@ import java.io.File
 
 sealed interface LyricsState {
     data object Loading : LyricsState
-    data class Ready(val lyrics: Lyrics) : LyricsState
+    /** [syncing] = sedang diselaraskan otomatis dengan suara video (lirik belum mengikuti lagu). */
+    data class Ready(val lyrics: Lyrics, val syncing: Boolean = false) : LyricsState
 
     /** Gagal karena jaringan; bukan berarti liriknya tidak ada. */
     data object Failed : LyricsState
@@ -36,9 +40,22 @@ class LyricsRepository(
     private val dir: File?,
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Penyelaras berbasis suara (video id, id rekaman acuan, rentang lirik di acuan). Null = tidak dipakai. */
+    private val autoSync: (suspend (String, String, LongRange) -> AutoSyncResult)? = null,
+    private val autoSyncEnabled: () -> Boolean = { true },
 ) {
-    constructor(client: OkHttpClient, dir: File?, region: () -> String) :
-        this(LyricsFinder(YouTubeMusicLyrics(client, region), LrcLib(client)), dir)
+    constructor(
+        client: OkHttpClient,
+        dir: File?,
+        region: () -> String,
+        autoSync: LyricsAutoSync?,
+        autoSyncEnabled: () -> Boolean,
+    ) : this(
+        LyricsFinder(YouTubeMusicLyrics(client, region), LrcLib(client)),
+        dir,
+        autoSync = autoSync?.let { it::align },
+        autoSyncEnabled = autoSyncEnabled,
+    )
 
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val lock = Any()
@@ -52,6 +69,10 @@ class LyricsRepository(
     private val flows = LinkedHashMap<String, MutableStateFlow<LyricsState>>()
     private val inflight = HashMap<String, Deferred<LyricsState>>()
 
+    /** Video yang sedang diselaraskan otomatis, dan kapan boleh dicoba lagi setelah gagal sementara. */
+    private val syncing = HashSet<String>()
+    private val syncRetryAt = HashMap<String, Long>()
+
     init {
         // Simpanan versi lama berisi lirik hasil pencocokan lama yang bisa salah versi.
         scope.launch { dir?.parentFile?.let { p -> OLD_DIRS.forEach { File(p, it).deleteRecursively() } } }
@@ -60,7 +81,7 @@ class LyricsRepository(
     /** Status lirik video [id]; aliran yang sama untuk semua pengamat. */
     fun state(id: String): StateFlow<LyricsState> = synchronized(lock) {
         flows[id]?.let { return it }
-        val initial = memory[id]?.let { LyricsState.Ready(it.lyrics) } ?: LyricsState.Loading
+        val initial = memory[id]?.let { LyricsState.Ready(it.lyrics, syncing = id in syncing) } ?: LyricsState.Loading
         MutableStateFlow(initial).also {
             flows[id] = it
             trimFlows()
@@ -79,7 +100,11 @@ class LyricsRepository(
                 else -> cur.metaKey != metaKey(song) || clock() - cur.at > EMPTY_TTL_MS
             }
         }
-        if (needs) load(song, force = false)
+        if (needs) {
+            load(song, force = false)
+        } else {
+            synchronized(lock) { memory[song.id]?.lyrics }?.let { maybeAutoSync(song.id, it) }
+        }
     }
 
     /** Coba lagi setelah gagal jaringan. */
@@ -159,7 +184,60 @@ class LyricsRepository(
         if (result is LyricsState.Ready) {
             if (result.lyrics.isEmpty) deleteDisk(id) else writeDisk(id, result.lyrics)
         }
+        if (shown is LyricsState.Ready) maybeAutoSync(id, shown.lyrics)
         return shown
+    }
+
+    /**
+     * Waktu lirik dibuat untuk versi lagu, sedangkan yang diputar video klip: cocokkan suara keduanya
+     * di latar belakang, lalu geser setiap baris ke waktu yang pas di video. Sekali per video.
+     */
+    private fun maybeAutoSync(id: String, l: Lyrics) {
+        val align = autoSync ?: return
+        if (!l.canAutoSync || !autoSyncEnabled()) return
+        val refId = l.timingRefId ?: return
+        val lines = l.synced ?: return
+        synchronized(lock) {
+            if (id in syncing || (syncRetryAt[id] ?: 0) > clock()) return
+            syncing += id
+            flows[id]?.value = LyricsState.Ready(l, syncing = true)
+        }
+        scope.launch {
+            val result = try {
+                align(id, refId, lines.first().timeMs..lines.last().timeMs)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AutoSyncResult.Error(e)
+            }
+            val next: Lyrics? = when (result) {
+                is AutoSyncResult.Aligned -> l.alignedWith(result.map) ?: l.copy(autoSync = Lyrics.AutoSync.NOT_MATCHING)
+                AutoSyncResult.NotMatching -> l.copy(autoSync = Lyrics.AutoSync.NOT_MATCHING)
+                is AutoSyncResult.Error -> null
+            }
+            val save = synchronized(lock) {
+                syncing -= id
+                val cur = memory[id]
+                when {
+                    // Selama proses, liriknya dicari ulang atau diselaraskan sendiri oleh pengguna: jangan ditimpa.
+                    cur == null || cur.lyrics.synced != l.synced || cur.lyrics.userSynced -> {
+                        cur?.let { flows[id]?.value = LyricsState.Ready(it.lyrics) }
+                        null
+                    }
+                    next == null -> {
+                        syncRetryAt[id] = clock() + SYNC_RETRY_MS
+                        flows[id]?.value = LyricsState.Ready(cur.lyrics)
+                        null
+                    }
+                    else -> {
+                        memory[id] = Entry(next, cur.metaKey, cur.at)
+                        flows[id]?.value = LyricsState.Ready(next)
+                        next
+                    }
+                }
+            }
+            save?.let { writeDisk(id, it) }
+        }
     }
 
     /** Buang aliran yang tidak diamati lagi supaya memori tidak menumpuk. */
@@ -168,7 +246,7 @@ class LyricsRepository(
         val it = flows.entries.iterator()
         while (flows.size > MAX_FLOWS && it.hasNext()) {
             val e = it.next()
-            if (e.value.subscriptionCount.value == 0 && !inflight.containsKey(e.key)) it.remove()
+            if (e.value.subscriptionCount.value == 0 && !inflight.containsKey(e.key) && e.key !in syncing) it.remove()
         }
     }
 
@@ -205,6 +283,7 @@ class LyricsRepository(
         private const val MAX_FLOWS = 24
         private const val MAX_FILES = 600
         private const val EMPTY_TTL_MS = 30 * 60_000L
+        private const val SYNC_RETRY_MS = 2 * 60_000L
         private val OLD_DIRS = listOf("lyrics", "lyrics2")
 
         fun encode(l: Lyrics): JSONObject = JSONObject().apply {
@@ -215,6 +294,9 @@ class LyricsRepository(
             if (l.offsetMs != 0L) put("o", l.offsetMs)
             put("tr", l.timingTrusted)
             if (l.userSynced) put("us", true)
+            l.timingRefId?.let { put("ref", it) }
+            if (l.autoSync != Lyrics.AutoSync.NONE) put("as", l.autoSync)
+            if (l.approxTiming) put("ap", true)
         }
 
         fun decode(o: JSONObject): Lyrics {
@@ -229,6 +311,9 @@ class LyricsRepository(
                 offsetMs = o.optLong("o", 0),
                 timingTrusted = o.optBoolean("tr", true),
                 userSynced = o.optBoolean("us", false),
+                timingRefId = if (o.isNull("ref")) null else o.optString("ref").takeIf { it.isNotBlank() },
+                autoSync = o.optInt("as", Lyrics.AutoSync.NONE),
+                approxTiming = o.optBoolean("ap", false),
             )
         }
     }

@@ -37,8 +37,12 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -66,6 +70,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import com.freease.music.data.lyrics.LyricsState
@@ -110,6 +118,59 @@ fun currentLineIndex(lyrics: Lyrics, positionMs: Long, offsetMs: Long = lyrics.o
  */
 private const val LOOKAHEAD_MS = 150L
 
+/**
+ * Posisi putar untuk lirik: dibaca ±25×/detik selama lagu berputar (MediaController menghitungnya
+ * sendiri tanpa IPC, jadi murah), 5×/detik saat dijeda supaya seek tetap terlihat. Berhenti saat app
+ * di latar belakang.
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun rememberLyricsPosition(active: Boolean): State<Long> {
+    val player = LocalActions.current.player
+    val source = remember(active) {
+        if (!active) {
+            flowOf(0L)
+        } else {
+            flow {
+                while (true) {
+                    emit(player.currentPosition())
+                    delay(if (player.state.value.isPlaying) 40 else 200)
+                }
+            }.distinctUntilChanged()
+        }
+    }
+    return source.collectAsStateWithLifecycle(0L)
+}
+
+/** Intro/jeda instrumental cukup panjang untuk diberi titik "• • •" seperti Spotify. */
+private const val INTRO_DOTS_MS = 4_000L
+
+private fun hasIntro(l: Lyrics): Boolean =
+    (l.synced?.firstOrNull { it.text.isNotBlank() && it.text != "♪" }?.timeMs ?: 0L) + l.offsetMs > INTRO_DOTS_MS
+
+/** Tiga titik yang terisi bertahap selama intro / jeda instrumental. */
+@Composable
+private fun InstrumentalDots(progress: Float, active: Boolean, modifier: Modifier = Modifier, dotSize: androidx.compose.ui.unit.Dp = 14.dp) {
+    val alpha by animateFloatAsState(if (active) 1f else 0.45f, tween(250), label = "dotsAlpha")
+    Canvas(modifier.size(width = dotSize * 4, height = dotSize)) {
+        val r = size.height / 2
+        for (i in 0 until 3) {
+            val fill = ((progress * 3) - i).coerceIn(0f, 1f)
+            val c = Color.White.copy(alpha = alpha * (0.35f + 0.65f * fill))
+            drawCircle(c, radius = r * (0.8f + 0.2f * fill), center = androidx.compose.ui.geometry.Offset(r + i * (size.width - 2 * r) / 2, r))
+        }
+    }
+}
+
+@Composable
+private fun SyncingLabel(modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        CircularProgressIndicator(Modifier.size(12.dp), color = Color.White, strokeWidth = 1.5.dp)
+        Spacer(Modifier.width(6.dp))
+        Text("Menyelaraskan…", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
+    }
+}
+
 private fun fmtOffset(ms: Long): String {
     val txt = String.format(java.util.Locale("id"), "%.2f", kotlin.math.abs(ms) / 1000.0).trimEnd('0').trimEnd(',')
     return when {
@@ -121,12 +182,13 @@ private fun fmtOffset(ms: Long): String {
 
 private fun LyricLine.display(): String = text.ifBlank { "♪" }
 
-/** Kartu lirik di bawah player (seperti Spotify). */
+/** Kartu lirik di bawah player (seperti Spotify): bergulir halus mengikuti lagu. */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun LyricsCard(song: Song, color: Color, onExpand: () -> Unit, modifier: Modifier = Modifier) {
     val state by rememberLyricsState(song)
     val dim = Color.White.copy(alpha = 0.65f)
+    val ready = state as? LyricsState.Ready
     Column(
         modifier
             .fillMaxWidth()
@@ -137,6 +199,7 @@ fun LyricsCard(song: Song, color: Color, onExpand: () -> Unit, modifier: Modifie
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Lirik", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+            if (ready?.syncing == true) SyncingLabel(Modifier.padding(end = 6.dp))
             Icon(Icons.Rounded.OpenInFull, "Perbesar", modifier = Modifier.padding(4.dp))
         }
         Spacer(Modifier.height(10.dp))
@@ -154,9 +217,9 @@ fun LyricsCard(song: Song, color: Color, onExpand: () -> Unit, modifier: Modifie
                             fontSize = 18.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold,
                             maxLines = 6, overflow = TextOverflow.Ellipsis,
                         )
-                        if (l.synced != null) {
+                        if (l.synced != null && !s.syncing) {
                             Spacer(Modifier.height(10.dp))
-                            Text("Versi video ini beda dengan versi lagunya. Buka lirik untuk menyelaraskan.", style = MaterialTheme.typography.labelMedium, color = dim)
+                            Text("Ketuk untuk membuka dan menyelaraskan lirik.", style = MaterialTheme.typography.labelMedium, color = dim)
                         }
                     }
                 }
@@ -168,20 +231,50 @@ fun LyricsCard(song: Song, color: Color, onExpand: () -> Unit, modifier: Modifie
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 private fun CardFollowing(l: Lyrics) {
-    val actions = LocalActions.current
     val lines = l.synced ?: return
-    val position by remember { actions.player.positionFlow(200) }.collectAsStateWithLifecycle(0L)
-    val idx = currentLineIndex(l, position)
-    val start = (idx - 1).coerceAtLeast(0)
-    lines.drop(start).take(6).forEachIndexed { i, line ->
-        Text(
-            line.display(),
-            fontSize = 20.sp,
-            lineHeight = 27.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = if (start + i == idx) Color.White else Color.Black.copy(alpha = 0.55f),
-            modifier = Modifier.padding(vertical = 3.dp),
-        )
+    val position by rememberLyricsPosition(active = true)
+    val idx by remember(l) { derivedStateOf { currentLineIndex(l, position) } }
+    val intro = hasIntro(l)
+    val shift = if (intro) 1 else 0
+    val listState = rememberLazyListState()
+    LaunchedEffect(idx) {
+        // Baris aktif jadi baris kedua di kartu; baris sebelumnya masih terlihat sedikit.
+        listState.animateScrollToItem((idx + shift - 1).coerceAtLeast(0))
+    }
+    LazyColumn(state = listState, userScrollEnabled = false, modifier = Modifier.fillMaxWidth().height(196.dp)) {
+        if (intro) {
+            item {
+                val first = lines.first { it.text.isNotBlank() && it.text != "♪" }.timeMs + l.offsetMs
+                InstrumentalDots(
+                    progress = (position.toFloat() / first).coerceIn(0f, 1f),
+                    active = idx < 0,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    dotSize = 10.dp,
+                )
+            }
+        }
+        itemsIndexed(lines) { i, line ->
+            val c by animateColorAsState(
+                when {
+                    i == idx -> Color.White
+                    i < idx -> Color.White.copy(alpha = 0.55f)
+                    else -> Color.Black.copy(alpha = 0.55f)
+                },
+                tween(200), label = "cardLine",
+            )
+            if (line.text.isBlank() || line.text == "♪") {
+                InstrumentalDots(if (i < idx) 1f else 0f, i == idx, Modifier.padding(vertical = 8.dp), dotSize = 10.dp)
+            } else {
+                Text(
+                    line.display(),
+                    fontSize = 20.sp,
+                    lineHeight = 27.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = c,
+                    modifier = Modifier.padding(vertical = 3.dp),
+                )
+            }
+        }
     }
 }
 
@@ -217,7 +310,7 @@ fun LyricsScreen(song: Song, color: Color, onClose: () -> Unit) {
                 val l = s.lyrics
                 when {
                     l.isEmpty -> Message("Lirik belum tersedia", "Belum ada lirik yang cocok untuk lagu ini.", "Cari ulang") { repo.refresh(song) }
-                    l.synced != null -> SyncedLyrics(song, l, showSync)
+                    l.synced != null -> SyncedLyrics(song, l, showSync, syncing = s.syncing)
                     else -> PlainLyrics(l)
                 }
             }
@@ -264,30 +357,27 @@ private fun PlainLyrics(l: Lyrics) {
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean) {
+private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean, syncing: Boolean) {
     val actions = LocalActions.current
     val repo = actions.container.lyrics
     val ctx = LocalContext.current
     val lines = l.synced ?: return
     val following = l.canFollow
 
-    if (!following) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.Black.copy(alpha = 0.25f))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.Sync, null, modifier = Modifier.padding(end = 10.dp))
-            Text(
-                "Waktu lirik ini untuk versi lagunya, sedangkan yang diputar versi video. " +
-                    "Ketuk sebuah baris tepat saat baris itu mulai dinyanyikan, lirik akan langsung mengikuti.",
-                style = MaterialTheme.typography.labelLarge,
-            )
-        }
+    when {
+        syncing -> Banner(
+            icon = { CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp) },
+            text = if (following) {
+                "Menyelaraskan lirik dengan suara video… sementara memakai waktu perkiraan."
+            } else {
+                "Menyelaraskan lirik dengan suara video… sebentar lagi lirik berjalan sendiri."
+            },
+        )
+        !following -> Banner(
+            icon = { Icon(Icons.Rounded.Sync, null) },
+            text = "Versi video ini berbeda dengan versi lagunya. Ketuk baris tepat saat mulai dinyanyikan, " +
+                "lirik langsung mengikuti.",
+        )
     }
     if (showSync) {
         SyncPanel(
@@ -300,23 +390,33 @@ private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean) {
     }
 
     val listState = rememberLazyListState()
-    val density = LocalDensity.current
     var lastDrag by remember { mutableLongStateOf(0L) }
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { if (it is DragInteraction.Start) lastDrag = SystemClock.uptimeMillis() }
     }
-    val position by remember(following) {
-        if (following) actions.player.positionFlow(100) else kotlinx.coroutines.flow.flowOf(0L)
-    }.collectAsStateWithLifecycle(0L)
+    val position by rememberLyricsPosition(active = following)
     val idx by remember(l, following) { derivedStateOf { if (following) currentLineIndex(l, position) else -1 } }
-    LaunchedEffect(idx) {
-        // Jangan merebut gulir saat pengguna baru saja menggulir sendiri.
-        if (idx >= 0 && SystemClock.uptimeMillis() - lastDrag > 3_500) {
-            listState.animateScrollToItem(idx, with(density) { -180.dp.roundToPx() })
-        }
+    val intro = following && hasIntro(l)
+    val shift = if (intro) 1 else 0
+    LaunchedEffect(idx, intro) {
+        // Baris aktif dijaga di sekitar sepertiga atas layar. Jangan merebut gulir kalau pengguna baru
+        // saja menggulir sendiri (mis. membaca baris berikutnya).
+        if (!following || SystemClock.uptimeMillis() - lastDrag < 3_500) return@LaunchedEffect
+        val viewport = listState.layoutInfo.viewportSize.height
+        listState.animateScrollToItem((idx + shift).coerceAtLeast(0), -(viewport * 0.3f).toInt())
     }
 
-    LazyColumn(state = listState, contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 200.dp, bottom = 320.dp)) {
+    LazyColumn(state = listState, contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 360.dp)) {
+        if (intro) {
+            item {
+                val first = lines.first { it.text.isNotBlank() && it.text != "♪" }.timeMs + l.offsetMs
+                InstrumentalDots(
+                    progress = (position.toFloat() / first).coerceIn(0f, 1f),
+                    active = idx < 0,
+                    modifier = Modifier.padding(vertical = 14.dp),
+                )
+            }
+        }
         itemsIndexed(lines) { i, line ->
             val active = i == idx
             val c by animateColorAsState(
@@ -326,51 +426,74 @@ private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean) {
                     i < idx -> Color.White.copy(alpha = 0.55f)
                     else -> Color.Black.copy(alpha = 0.5f)
                 },
-                tween(150), label = "line",
+                tween(180, easing = FastOutSlowInEasing), label = "line",
             )
             val scale by animateFloatAsState(if (following && !active) 0.96f else 1f, tween(250), label = "lineScale")
-            Text(
-                line.display(),
-                fontSize = 28.sp,
-                lineHeight = 36.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = c,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        transformOrigin = TransformOrigin(0f, 0.5f)
-                    }
-                    .clip(RoundedCornerShape(8.dp))
-                    .combinedClickable(
-                        onClick = {
-                            if (following) {
-                                actions.player.seekTo((line.timeMs + l.offsetMs).coerceAtLeast(0))
-                            } else if (line.text.isNotBlank() && line.text != "♪") {
-                                // Baris ini baru mulai dinyanyikan → selisihnya jadi geseran sinkron
-                                // (dikurangi waktu reaksi jari yang selalu sedikit terlambat).
-                                val offset = (actions.player.currentPosition() - line.timeMs - TAP_REACTION_MS)
-                                    .coerceIn(-MAX_OFFSET, MAX_OFFSET)
-                                repo.setSync(song.id, offset, userSynced = true)
-                            }
-                        },
-                        onLongClick = {
-                            if (line.text.isNotBlank()) {
-                                val send = Intent(Intent.ACTION_SEND).setType("text/plain")
-                                    .putExtra(Intent.EXTRA_TEXT, "\"${line.text}\"\n${song.title} - ${song.artist}")
-                                ctx.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                            }
-                        },
-                    )
-                    .padding(vertical = 8.dp),
-            )
+            val modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    transformOrigin = TransformOrigin(0f, 0.5f)
+                }
+                .clip(RoundedCornerShape(8.dp))
+                .combinedClickable(
+                    onClick = {
+                        if (following) {
+                            actions.player.seekTo((line.timeMs + l.offsetMs).coerceAtLeast(0))
+                            lastDrag = 0L
+                        } else if (line.text.isNotBlank() && line.text != "♪") {
+                            // Baris ini baru mulai dinyanyikan → selisihnya jadi geseran sinkron
+                            // (dikurangi waktu reaksi jari yang selalu sedikit terlambat).
+                            val offset = (actions.player.currentPosition() - line.timeMs - TAP_REACTION_MS)
+                                .coerceIn(-MAX_OFFSET, MAX_OFFSET)
+                            repo.setSync(song.id, offset, userSynced = true)
+                        }
+                    },
+                    onLongClick = {
+                        if (line.text.isNotBlank()) {
+                            val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                                .putExtra(Intent.EXTRA_TEXT, "\"${line.text}\"\n${song.title} - ${song.artist}")
+                            ctx.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                    },
+                )
+                .padding(vertical = 8.dp)
+            if (line.text.isBlank() || line.text == "♪") {
+                // Jeda instrumental di tengah lagu.
+                val next = lines.getOrNull(i + 1)?.timeMs?.plus(l.offsetMs)
+                val start = line.timeMs + l.offsetMs
+                val progress = if (active && next != null && next > start) ((position - start).toFloat() / (next - start)).coerceIn(0f, 1f) else if (i < idx) 1f else 0f
+                Box(modifier) { InstrumentalDots(progress, active) }
+            } else {
+                Text(line.text, fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, color = c, modifier = modifier)
+            }
         }
         if (l.source.isNotBlank()) {
             item {
-                Text(l.source, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(top = 24.dp))
+                val extra = when {
+                    l.autoSync == Lyrics.AutoSync.DONE -> " · diselaraskan otomatis dengan video"
+                    else -> ""
+                }
+                Text(l.source + extra, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(top = 24.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun Banner(icon: @Composable () -> Unit, text: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.25f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.padding(end = 10.dp)) { icon() }
+        Text(text, style = MaterialTheme.typography.labelLarge)
     }
 }
 
