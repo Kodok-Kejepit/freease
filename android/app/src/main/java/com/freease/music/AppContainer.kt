@@ -77,6 +77,7 @@ class AppContainer(private val context: Context) {
     val importer = com.freease.music.data.importer.ImportManager(httpClient, youtube, library, appScope)
     val localMusic = com.freease.music.data.local.LocalMusicRepository(context)
     val queueStore = QueueStore(context)
+    val alarms = com.freease.music.data.alarm.AlarmStore(context)
 
     /** Data belajar Freease Pintar (database terpisah, dibuka hanya saat pertama dipakai). */
     private val tasteDb by lazy { com.freease.music.data.taste.TasteDatabase.build(context) }

@@ -74,6 +74,10 @@ class MainActivity : ComponentActivity() {
             a.playerExpanded = true
             return
         }
+        if (intent.getBooleanExtra(EXTRA_OPEN_ALARMS, false)) {
+            a.navigate(com.freease.music.ui.navigation.Routes.ALARMS)
+            return
+        }
         val text = when (intent.action) {
             Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
             Intent.ACTION_VIEW -> intent.dataString
@@ -88,5 +92,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_PLAYER = "open_player"
+        const val EXTRA_OPEN_ALARMS = "open_alarms"
     }
 }

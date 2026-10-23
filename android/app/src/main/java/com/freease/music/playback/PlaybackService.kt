@@ -30,6 +30,7 @@ import androidx.media3.session.SessionResult
 import com.freease.music.FreeaseApp
 import com.freease.music.MainActivity
 import com.freease.music.R
+import com.freease.music.data.alarm.AlarmScheduler
 import com.freease.music.data.db.DownloadState
 import com.freease.music.data.model.Song
 import com.freease.music.data.prefs.AudioQuality
@@ -123,13 +124,7 @@ class PlaybackService : MediaLibraryService() {
             .setMediaSourceFactory(
                 FreeaseMediaSourceFactory(this, c.mediaCache, c.streamClient, StreamResolver(c.youtube)),
             )
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .build(),
-                true,
-            )
+            .setAudioAttributes(MEDIA_ATTRIBUTES, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setLoadControl(
@@ -181,6 +176,14 @@ class PlaybackService : MediaLibraryService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_WIDGET) {
             handleWidget(intent.getStringExtra(EXTRA_CMD))
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_ALARM) {
+            startAlarm(intent.getIntExtra(AlarmScheduler.EXTRA_ID, -1))
+            return START_NOT_STICKY
+        }
+        if (intent?.action == AlarmScheduler.ACTION_SNOOZE || intent?.action == AlarmScheduler.ACTION_DISMISS) {
+            stopAlarm(snooze = intent.action == AlarmScheduler.ACTION_SNOOZE)
             return START_NOT_STICKY
         }
         return super.onStartCommand(intent, flags, startId)
@@ -255,7 +258,153 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    // ------------------------------------------------------------------ alarm
+
+    private var alarmId = -1
+    private var alarmJob: Job? = null
+    private var ringtone: android.media.MediaPlayer? = null
+
+    private fun alarmNotification(title: String, text: String): android.app.Notification {
+        val nm = getSystemService(android.app.NotificationManager::class.java)
+        if (android.os.Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(ALARM_CHANNEL) == null) {
+            nm.createNotificationChannel(
+                android.app.NotificationChannel(ALARM_CHANNEL, "Alarm musik", android.app.NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(null, null)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                },
+            )
+        }
+        fun action(a: String, req: Int) = PendingIntent.getService(
+            this, req, Intent(this, PlaybackService::class.java).setAction(a),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val open = PendingIntent.getActivity(
+            this, 0x42,
+            Intent(this, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(MainActivity.EXTRA_OPEN_PLAYER, true),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return androidx.core.app.NotificationCompat.Builder(this, ALARM_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setCategory(androidx.core.app.NotificationCompat.CATEGORY_ALARM)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_MAX)
+            .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setContentIntent(open)
+            .addAction(0, "Tunda ${AlarmScheduler.SNOOZE_MIN} mnt", action(AlarmScheduler.ACTION_SNOOZE, 0x43))
+            .addAction(0, "Matikan", action(AlarmScheduler.ACTION_DISMISS, 0x44))
+            .build()
+    }
+
+    /** Alarm berbunyi: putar lagu dari sumber pilihan dengan volume naik perlahan. */
+    private fun startAlarm(rawId: Int) {
+        val id = if (rawId >= AlarmScheduler.SNOOZE_ID_OFFSET) rawId - AlarmScheduler.SNOOZE_ID_OFFSET else rawId
+        val alarm = container.alarms.get(id)
+        val time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        // Wajib segera foreground: memuat lagu bisa butuh beberapa detik.
+        val notification = alarmNotification("Alarm $time", alarm?.sourceLabel ?: "Freease")
+        runCatching {
+            androidx.core.app.ServiceCompat.startForeground(
+                this, ALARM_NOTIFICATION_ID, notification,
+                if (android.os.Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0,
+            )
+        }
+        if (rawId < AlarmScheduler.SNOOZE_ID_OFFSET) container.alarms.fired(id)
+        alarmId = id
+        alarmJob?.cancel()
+        alarmJob = scope.launch {
+            val songs = alarmSongs(alarm?.source ?: LibraryTree.LIKED)
+                .let { if (alarm?.shuffle != false) it.shuffled() else it }
+                .take(100)
+            exo.setAudioAttributes(ALARM_ATTRIBUTES, false)
+            mixer.fade = 1f
+            mixer.sleep = 1f
+            mixer.alarm = 0.03f
+            if (songs.isNotEmpty()) {
+                exo.shuffleModeEnabled = false
+                exo.repeatMode = Player.REPEAT_MODE_ALL
+                exo.setMediaItems(preparePlayback(songs.map(MediaItems::fromSong)), 0, 0)
+                exo.prepare()
+                exo.play()
+            }
+            // Musik tidak bisa diputar (internet mati, link gagal) → nada alarm bawaan, supaya tetap bangun.
+            val deadline = System.currentTimeMillis() + 25_000
+            while (!exo.isPlaying && System.currentTimeMillis() < deadline && songs.isNotEmpty()) delay(500)
+            if (!exo.isPlaying) {
+                exo.stop()
+                playFallbackTone()
+            }
+            val fadeMs = ((alarm?.fadeSec ?: 60) * 1000L).coerceAtLeast(1)
+            val t0 = System.currentTimeMillis()
+            while (true) {
+                val f = ((System.currentTimeMillis() - t0).toFloat() / fadeMs).coerceIn(0f, 1f)
+                val v = 0.03f + 0.97f * f * f
+                mixer.alarm = v
+                ringtone?.setVolume(v, v)
+                if (f >= 1f) break
+                delay(250)
+            }
+        }
+    }
+
+    /** Lagu untuk alarm; kalau offline, utamakan unduhan & musik di HP. */
+    private suspend fun alarmSongs(source: String): List<Song> {
+        val online = container.isOnline()
+        val primary = runCatching { tree.songsOf(source) }.getOrDefault(emptyList())
+            .filter { online || it.isLocal || localPath(it.id) != null }
+        if (primary.isNotEmpty()) return primary
+        for (fallback in listOf(LibraryTree.DOWNLOADS, LibraryTree.LOCAL, LibraryTree.LIKED, LibraryTree.RECENT)) {
+            val list = runCatching { tree.songsOf(fallback) }.getOrDefault(emptyList())
+                .filter { online || it.isLocal || localPath(it.id) != null }
+            if (list.isNotEmpty()) return list
+        }
+        return emptyList()
+    }
+
+    private fun playFallbackTone() {
+        val uri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+            ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE)
+            ?: return
+        ringtone = runCatching {
+            android.media.MediaPlayer().apply {
+                setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                )
+                setDataSource(this@PlaybackService, uri)
+                isLooping = true
+                setVolume(0.03f, 0.03f)
+                prepare()
+                start()
+            }
+        }.getOrNull()
+    }
+
+    private fun stopAlarm(snooze: Boolean) {
+        if (alarmId < 0 && ringtone == null) {
+            getSystemService(android.app.NotificationManager::class.java).cancel(ALARM_NOTIFICATION_ID)
+            return
+        }
+        if (snooze && alarmId >= 0) AlarmScheduler.snooze(this, alarmId)
+        alarmJob?.cancel()
+        alarmJob = null
+        ringtone?.run { runCatching { stop() }; release() }
+        ringtone = null
+        alarmId = -1
+        exo.pause()
+        exo.setAudioAttributes(MEDIA_ATTRIBUTES, true)
+        mixer.alarm = 1f
+        androidx.core.app.ServiceCompat.stopForeground(this, androidx.core.app.ServiceCompat.STOP_FOREGROUND_REMOVE)
+        getSystemService(android.app.NotificationManager::class.java).cancel(ALARM_NOTIFICATION_ID)
+        if (snooze) container.emitMessage("Alarm ditunda ${AlarmScheduler.SNOOZE_MIN} menit")
+    }
+
     override fun onDestroy() {
+        ringtone?.release()
+        ringtone = null
         flushListening()
         saveQueue()
         handler.removeCallbacksAndMessages(null)
@@ -890,6 +1039,13 @@ class PlaybackService : MediaLibraryService() {
     companion object {
         const val ACTION_LIKE = "freease.LIKE"
         const val ACTION_WIDGET = "freease.WIDGET"
+        const val ACTION_ALARM = "freease.ALARM"
+        private const val ALARM_CHANNEL = "alarm"
+        private const val ALARM_NOTIFICATION_ID = 0x414C
+        private val MEDIA_ATTRIBUTES = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build()
+        private val ALARM_ATTRIBUTES = AudioAttributes.Builder()
+            .setUsage(C.USAGE_ALARM).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build()
         const val EXTRA_CMD = "cmd"
         private const val REASON_NONE = -1
         private const val MAX_FAILURES = 3

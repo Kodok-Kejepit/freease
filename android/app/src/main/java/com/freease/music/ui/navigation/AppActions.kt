@@ -40,6 +40,7 @@ object Routes {
     const val IMPORT = "import?link={link}"
     const val LOCAL_MUSIC = "local_music"
     const val CAR = "car"
+    const val ALARMS = "alarms"
 
     fun artist(url: String) = "artist?url=${Uri.encode(url)}"
     fun playlist(url: String) = "playlist?url=${Uri.encode(url)}"

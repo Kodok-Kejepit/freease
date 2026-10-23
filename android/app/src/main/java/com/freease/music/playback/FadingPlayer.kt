@@ -14,9 +14,11 @@ class VolumeMixer(private val player: Player) {
         set(v) { field = v; apply() }
     var sleep = 1f
         set(v) { field = v; apply() }
+    var alarm = 1f
+        set(v) { field = v; apply() }
 
     private fun apply() {
-        player.volume = (fade * crossfade * sleep).coerceIn(0f, 1f)
+        player.volume = (fade * crossfade * sleep * alarm).coerceIn(0f, 1f)
     }
 }
 

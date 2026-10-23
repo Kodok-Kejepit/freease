@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -157,6 +158,14 @@ fun LibraryScreen() {
                             Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFFFF8A3D), Color(0xFFB4235A)))),
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Rounded.PhoneAndroid, null, tint = Color.White, modifier = Modifier.size(30.dp)) }
+                    }
+                }
+                item {
+                    FixedRow("Alarm Musik", "Bangun dengan lagu favoritmu", onClick = { actions.navigate(Routes.ALARMS) }) {
+                        Box(
+                            Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFFFFC94D), Color(0xFFE0582B)))),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Rounded.Alarm, null, tint = Color.White, modifier = Modifier.size(30.dp)) }
                     }
                 }
             }
