@@ -86,6 +86,7 @@ class AppContainer(private val context: Context) {
     }
     val sleepTimer = SleepTimer()
     val effects = AudioEffectsController(context)
+    val eqProfiles = com.freease.music.playback.EqProfiles(context, settings, appScope) { emitMessage("Equalizer: profil ${it.label}") }
     val player = PlayerConnection(context, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate), youtube)
 
     /** true = tampilkan video (HD) di player; false = audio saja (hemat data & baterai). */
@@ -117,6 +118,7 @@ class AppContainer(private val context: Context) {
 
     init {
         YouTubeRepository.initNewPipe(NewPipeHttp(httpClient), settings.current.region)
+        eqProfiles.start()
         // Jadwal unduhan otomatis mengikuti pengaturan (aktif hanya saat mengisi daya + Wi-Fi).
         appScope.launch {
             settings.flow.map { it.autoDownload }.distinctUntilChanged().collect {

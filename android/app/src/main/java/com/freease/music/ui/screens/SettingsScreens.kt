@@ -425,6 +425,15 @@ fun EqualizerScreen() {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = LocalBottomInset.current + 24.dp)) {
         item { SettingsTopBar("Equalizer") { actions.nav.popBackStack() } }
         item { SwitchItem("Aktifkan efek suara", "Equalizer, bass boost, 3D, dan penguat volume", s.eqEnabled, c.settings::setEqEnabled) }
+        item {
+            val device by c.eqProfiles.device.collectAsState()
+            SwitchItem(
+                "Profil per perangkat",
+                if (s.eqPerDevice) "Sekarang mengatur: ${device.label}. Speaker, headset, dan tiap Bluetooth punya setelan sendiri."
+                else "Satu setelan untuk semua perangkat",
+                s.eqPerDevice, c.settings::setEqPerDevice,
+            )
+        }
         if (eq == null) {
             item {
                 Text(

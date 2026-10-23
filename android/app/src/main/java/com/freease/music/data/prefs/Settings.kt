@@ -180,6 +180,16 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setBassBoost(v: Int) = edit { it[K.bass] = v }
     fun setVirtualizer(v: Int) = edit { it[K.virt] = v }
     fun setLoudness(v: Int) = edit { it[K.loud] = v }
+
+    /** Seluruh setelan efek suara sekaligus (dipakai saat berganti perangkat keluaran). */
+    fun setEqProfile(enabled: Boolean, preset: Int, bands: List<Int>, bass: Int, virt: Int, loud: Int) = edit {
+        it[K.eqEnabled] = enabled
+        it[K.eqPreset] = preset
+        it[K.eqBands] = bands.joinToString(",")
+        it[K.bass] = bass
+        it[K.virt] = virt
+        it[K.loud] = loud
+    }
     fun setRegion(v: String) = edit { it[K.region] = v }
     fun setDownloadWifiOnly(v: Boolean) = edit { it[K.wifiOnly] = v }
     fun setShowLyricsCard(v: Boolean) = edit { it[K.lyricsCard] = v }
