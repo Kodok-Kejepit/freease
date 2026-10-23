@@ -45,6 +45,20 @@ data class AppSettings(
     val showLyricsCard: Boolean = true,
     /** Selaraskan lirik video klip otomatis lewat suaranya (unduh ±1,5 MB audio per lagu, sekali saja). */
     val autoSyncLyrics: Boolean = true,
+    /** Samakan kekerasan suara antarlagu (seperti Spotify). */
+    val normalizeVolume: Boolean = true,
+    /** 0 = Pelan (−19 LUFS), 1 = Normal (−14), 2 = Keras (−11). */
+    val normalizeLevel: Int = 1,
+    /** Gelembung lirik di atas aplikasi lain. */
+    val floatingLyrics: Boolean = false,
+    /** Baris lirik di notifikasi & layar kunci. */
+    val lyricsNotification: Boolean = false,
+    /** Baris aktif terisi per kata seperti karaoke. */
+    val karaokeLyrics: Boolean = true,
+    /** Tampilkan cara baca latin untuk lirik Korea/Jepang. */
+    val romanizeLyrics: Boolean = true,
+    /** Setelan equalizer tersimpan per perangkat (speaker/headset/Bluetooth). */
+    val eqPerDevice: Boolean = true,
     val resumeOnStart: Boolean = true,
     val smartMode: Boolean = true,
     /** Suasana Freease Pintar: "" (biasa), "focus", "chill", "workout", "sleep". */
@@ -81,6 +95,13 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val wifiOnly = booleanPreferencesKey("dl_wifi_only")
         val lyricsCard = booleanPreferencesKey("lyrics_card")
         val autoSyncLyrics = booleanPreferencesKey("auto_sync_lyrics")
+        val normalizeVolume = booleanPreferencesKey("normalize_volume")
+        val normalizeLevel = intPreferencesKey("normalize_level")
+        val floatingLyrics = booleanPreferencesKey("floating_lyrics")
+        val lyricsNotification = booleanPreferencesKey("lyrics_notification")
+        val karaokeLyrics = booleanPreferencesKey("karaoke_lyrics")
+        val romanizeLyrics = booleanPreferencesKey("romanize_lyrics")
+        val eqPerDevice = booleanPreferencesKey("eq_per_device")
         val resume = booleanPreferencesKey("resume_on_start")
         val smart = booleanPreferencesKey("smart_mode")
         val mood = stringPreferencesKey("smart_mood")
@@ -111,6 +132,13 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         downloadWifiOnly = p[K.wifiOnly] ?: false,
         showLyricsCard = p[K.lyricsCard] ?: true,
         autoSyncLyrics = p[K.autoSyncLyrics] ?: true,
+        normalizeVolume = p[K.normalizeVolume] ?: true,
+        normalizeLevel = p[K.normalizeLevel] ?: 1,
+        floatingLyrics = p[K.floatingLyrics] ?: false,
+        lyricsNotification = p[K.lyricsNotification] ?: false,
+        karaokeLyrics = p[K.karaokeLyrics] ?: true,
+        romanizeLyrics = p[K.romanizeLyrics] ?: true,
+        eqPerDevice = p[K.eqPerDevice] ?: true,
         resumeOnStart = p[K.resume] ?: true,
         smartMode = p[K.smart] ?: true,
         smartMood = p[K.mood] ?: "",
@@ -156,6 +184,13 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setDownloadWifiOnly(v: Boolean) = edit { it[K.wifiOnly] = v }
     fun setShowLyricsCard(v: Boolean) = edit { it[K.lyricsCard] = v }
     fun setAutoSyncLyrics(v: Boolean) = edit { it[K.autoSyncLyrics] = v }
+    fun setNormalizeVolume(v: Boolean) = edit { it[K.normalizeVolume] = v }
+    fun setNormalizeLevel(v: Int) = edit { it[K.normalizeLevel] = v }
+    fun setFloatingLyrics(v: Boolean) = edit { it[K.floatingLyrics] = v }
+    fun setLyricsNotification(v: Boolean) = edit { it[K.lyricsNotification] = v }
+    fun setKaraokeLyrics(v: Boolean) = edit { it[K.karaokeLyrics] = v }
+    fun setRomanizeLyrics(v: Boolean) = edit { it[K.romanizeLyrics] = v }
+    fun setEqPerDevice(v: Boolean) = edit { it[K.eqPerDevice] = v }
     fun setResumeOnStart(v: Boolean) = edit { it[K.resume] = v }
     fun setSmartMode(v: Boolean) = edit { it[K.smart] = v }
     fun setSmartMood(v: String) = edit { it[K.mood] = v }

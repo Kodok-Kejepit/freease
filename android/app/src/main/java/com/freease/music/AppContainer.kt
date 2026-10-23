@@ -73,6 +73,7 @@ class AppContainer(private val context: Context) {
         autoSyncEnabled = { settings.current.autoSyncLyrics && (!settings.current.saverOnCellular || !isMetered()) },
     )
     val downloads = DownloadManager(context, appScope)
+    val loudness = com.freease.music.playback.loudness.LoudnessStore(File(context.filesDir, "loudness.json"))
     val importer = com.freease.music.data.importer.ImportManager(httpClient, youtube, library, appScope)
     val queueStore = QueueStore(context)
 

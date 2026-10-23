@@ -1,6 +1,7 @@
 package com.freease.music.playback
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
@@ -16,6 +17,9 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import com.freease.music.playback.loudness.NormalizingAudioProcessor
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
@@ -64,6 +68,15 @@ class PlaybackService : MediaSessionService() {
 
     private lateinit var exo: ExoPlayer
     private lateinit var mixer: VolumeMixer
+
+    /** Normalisasi volume (ITU-R BS.1770) di jalur audio ExoPlayer. */
+    private val normalizer = NormalizingAudioProcessor { id, lufs, sec ->
+        // Cukup panjang untuk dipercaya: simpan supaya putaran berikutnya langsung pas.
+        if (sec >= 30) {
+            container.loudness.put(id, lufs)
+            container.appScope.launch(Dispatchers.IO) { container.loudness.save() }
+        }
+    }
     private var session: MediaSession? = null
 
     private val likeCommand = SessionCommand(ACTION_LIKE, Bundle.EMPTY)
@@ -90,7 +103,17 @@ class PlaybackService : MediaSessionService() {
 
         exo = ExoPlayer.Builder(this)
             .setRenderersFactory(
-                DefaultRenderersFactory(this)
+                object : DefaultRenderersFactory(this) {
+                    override fun buildAudioSink(
+                        context: Context,
+                        enableFloatOutput: Boolean,
+                        enableAudioTrackPlaybackParams: Boolean,
+                    ): AudioSink = DefaultAudioSink.Builder(context)
+                        .setEnableFloatOutput(enableFloatOutput)
+                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                        .setAudioProcessors(arrayOf(normalizer))
+                        .build()
+                }
                     .setEnableDecoderFallback(true)
                     .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON),
             )
@@ -116,6 +139,8 @@ class PlaybackService : MediaSessionService() {
             .setSeekForwardIncrementMs(10_000)
             .build()
         exo.skipSilenceEnabled = settings.skipSilence
+        applyNormalizer(settings)
+        container.appScope.launch(Dispatchers.IO) { container.loudness.load() }
         exo.addListener(listener)
         mixer = VolumeMixer(exo)
 
@@ -246,10 +271,20 @@ class PlaybackService : MediaSessionService() {
             var lastMood: String? = null
             container.settings.flow.collect { s ->
                 exo.skipSilenceEnabled = s.skipSilence
+                applyNormalizer(s)
                 container.effects.apply(s)
                 if (lastMood != null && lastMood != s.smartMood) onMoodChanged()
                 lastMood = s.smartMood
             }
+        }
+    }
+
+    private fun applyNormalizer(s: com.freease.music.data.prefs.AppSettings) {
+        normalizer.enabled = s.normalizeVolume
+        normalizer.targetLufs = when (s.normalizeLevel) {
+            0 -> -19.0
+            2 -> -11.0
+            else -> -14.0
         }
     }
 
@@ -334,6 +369,7 @@ class PlaybackService : MediaSessionService() {
             }
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) container.touchInteraction()
             flushListening(reason)
+            normalizer.beginTrack(newId, newId?.let(container.loudness::get))
             trackingSong = mediaItem?.let(MediaItems::toSong)
             trackingSong?.let { song -> scope.launch { container.library.touch(song) } }
 

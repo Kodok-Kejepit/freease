@@ -206,6 +206,19 @@ fun SettingsScreen() {
         }
         item { Item("Kualitas video", "Maksimal ${s.videoQuality}p", onClick = { dialog = "video" }) }
         item {
+            SwitchItem(
+                "Normalisasi volume",
+                "Semua lagu terdengar sama keras, tanpa perlu atur volume tiap ganti lagu",
+                s.normalizeVolume,
+                c.settings::setNormalizeVolume,
+            )
+        }
+        if (s.normalizeVolume) {
+            item {
+                Item("Tingkat volume", listOf("Pelan — cocok untuk suasana tenang", "Normal — disarankan", "Keras — untuk tempat ramai")[s.normalizeLevel.coerceIn(0, 2)], onClick = { dialog = "normalize" })
+            }
+        }
+        item {
             Item("Equalizer & efek suara", if (s.eqEnabled) "Aktif" else "Nonaktif", onClick = { actions.navigate(Routes.EQUALIZER) }) {
                 Icon(Icons.Rounded.ChevronRight, null, tint = Freease.colors.muted)
             }
@@ -332,6 +345,11 @@ fun SettingsScreen() {
     crashReport?.let { CrashReportDialog(it, "Laporan crash terakhir") { crashReport = null } }
 
     when (dialog) {
+        "normalize" -> ChoiceDialog(
+            "Tingkat volume",
+            listOf(0 to "Pelan (−19 LUFS)", 1 to "Normal (−14 LUFS, disarankan)", 2 to "Keras (−11 LUFS)"),
+            s.normalizeLevel, { dialog = null }, c.settings::setNormalizeLevel,
+        )
         "quality" -> ChoiceDialog(
             "Kualitas streaming",
             AudioQuality.entries.map { it to "${it.label} — ${it.desc}" },
