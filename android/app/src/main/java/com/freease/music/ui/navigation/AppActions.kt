@@ -37,10 +37,12 @@ object Routes {
     const val SETTINGS = "settings"
     const val EQUALIZER = "equalizer"
     const val CATEGORY = "category?title={title}&query={query}"
+    const val IMPORT = "import?link={link}"
 
     fun artist(url: String) = "artist?url=${Uri.encode(url)}"
     fun playlist(url: String) = "playlist?url=${Uri.encode(url)}"
     fun local(id: Long) = "local/$id"
+    fun import(link: String = "") = "import?link=${Uri.encode(link)}"
     fun category(title: String, query: String) = "category?title=${Uri.encode(title)}&query=${Uri.encode(query)}"
 }
 

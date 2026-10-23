@@ -93,6 +93,7 @@ fun LibraryScreen() {
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var sortAz by rememberSaveable { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
+    var addMenu by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -104,7 +105,21 @@ fun LibraryScreen() {
             Spacer(Modifier.width(12.dp))
             Text("Koleksi Kamu", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             IconButton(onClick = { sortAz = !sortAz }) { Icon(Icons.Rounded.Sort, "Urutkan") }
-            IconButton(onClick = { creating = true }) { Icon(Icons.Rounded.Add, "Playlist baru") }
+            Box {
+                IconButton(onClick = { addMenu = true }) { Icon(Icons.Rounded.Add, "Tambah") }
+                DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }, containerColor = Freease.colors.elevated) {
+                    DropdownMenuItem(
+                        text = { Text("Playlist baru") },
+                        leadingIcon = { Icon(Icons.Rounded.Add, null) },
+                        onClick = { addMenu = false; creating = true },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Impor dari Spotify") },
+                        leadingIcon = { Icon(Icons.Rounded.Download, null) },
+                        onClick = { addMenu = false; actions.navigate(Routes.import()) },
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(8.dp))
         FilterChipRow(listOf("Semua", "Playlist", "Artis", "Unduhan"), filter, { filter = it })

@@ -77,7 +77,11 @@ class MainActivity : ComponentActivity() {
             Intent.ACTION_VIEW -> intent.dataString
             else -> null
         } ?: return
-        if (YouTubeRepository.isYouTubeUrl(text)) a.handleLink(text)
+        when {
+            YouTubeRepository.isYouTubeUrl(text) -> a.handleLink(text)
+            com.freease.music.data.importer.SpotifyReader.isSpotifyLink(text) ->
+                a.navigate(com.freease.music.ui.navigation.Routes.import(text.trim()))
+        }
     }
 
     companion object {

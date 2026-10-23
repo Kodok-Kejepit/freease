@@ -135,6 +135,9 @@ fun FreeaseRoot(container: AppContainer, onActionsReady: (AppActions) -> Unit) {
                     composable(Routes.MONTHLY) { MonthlyScreen() }
                     composable(Routes.SETTINGS) { SettingsScreen() }
                     composable(Routes.EQUALIZER) { EqualizerScreen() }
+                    composable(Routes.IMPORT, arguments = listOf(navArgument("link") { type = NavType.StringType; defaultValue = "" })) {
+                        com.freease.music.ui.screens.ImportScreen(it.arguments?.getString("link") ?: "")
+                    }
                     composable(Routes.ARTIST, arguments = listOf(navArgument("url") { type = NavType.StringType })) {
                         ArtistScreen(it.arguments?.getString("url") ?: "")
                     }

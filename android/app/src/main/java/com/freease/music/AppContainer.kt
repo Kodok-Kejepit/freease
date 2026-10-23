@@ -73,6 +73,7 @@ class AppContainer(private val context: Context) {
         autoSyncEnabled = { settings.current.autoSyncLyrics && (!settings.current.saverOnCellular || !isMetered()) },
     )
     val downloads = DownloadManager(context, appScope)
+    val importer = com.freease.music.data.importer.ImportManager(httpClient, youtube, library, appScope)
     val queueStore = QueueStore(context)
 
     /** Data belajar Freease Pintar (database terpisah, dibuka hanya saat pertama dipakai). */
