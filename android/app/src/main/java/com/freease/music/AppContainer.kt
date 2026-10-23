@@ -133,7 +133,8 @@ class AppContainer(private val context: Context) {
         // Jadwal unduhan otomatis mengikuti pengaturan (aktif hanya saat mengisi daya + Wi-Fi).
         appScope.launch {
             settings.flow.map { it.autoDownload }.distinctUntilChanged().collect {
-                com.freease.music.data.download.AutoDownloader.sync(context, it)
+                // WorkManager belum siap (mis. lingkungan uji) tidak boleh menjatuhkan aplikasi.
+                runCatching { com.freease.music.data.download.AutoDownloader.sync(context, it) }
             }
         }
     }
