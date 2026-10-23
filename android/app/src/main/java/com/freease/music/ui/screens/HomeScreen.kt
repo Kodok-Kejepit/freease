@@ -272,6 +272,9 @@ fun HomeScreen() {
                     QuickPicksGrid(feed.quickPicks)
                 }
             }
+            if (java.util.Calendar.getInstance().get(java.util.Calendar.MONTH) in listOf(java.util.Calendar.DECEMBER, java.util.Calendar.JANUARY) && recent.isNotEmpty()) {
+                item { WrappedBanner() }
+            }
             if (mixes.isNotEmpty()) {
                 item {
                     SectionHeader("Daily Mix untukmu", subtitle = "Lagu favorit + temuan baru, diracik ulang tiap hari")
@@ -326,6 +329,27 @@ fun HomeScreen() {
                 }
             }
         }
+    }
+}
+
+/** Kartu ajakan membuka Freease Wrapped (muncul Desember–Januari). */
+@Composable
+private fun WrappedBanner() {
+    val actions = LocalActions.current
+    val year = defaultWrappedYear()
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(Brush.linearGradient(listOf(Color(0xFF7B4DFF), Color(0xFFE8115B), Color(0xFFFF6437))))
+            .clickable { actions.navigate(Routes.wrapped(year)) }
+            .padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("FREEASE WRAPPED", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.8f))
+            Text("Rekap musikmu $year sudah siap", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = Color.White)
+            Text("Artis, lagu, dan kebiasaan dengarmu setahun ini", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f))
+        }
+        Text("$year", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White)
     }
 }
 

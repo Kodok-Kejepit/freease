@@ -44,3 +44,27 @@ class DailyMixTest {
         assertEquals(listOf("o1", "o2", "f1", "o3", "o4", "f2", "o5", "o6", "f3"), mix.map { it.id })
     }
 }
+
+class WrappedTest {
+    @org.junit.Test
+    fun yearlyInsights() {
+        val tz = java.util.TimeZone.getTimeZone("Asia/Jakarta")
+        fun at(m: Int, d: Int, h: Int) = java.util.Calendar.getInstance(tz).apply { clear(); set(2026, m, d, h, 0) }.timeInMillis
+        val stamps = buildList {
+            // 10 hari berturut-turut di Maret, jam 22.
+            for (d in 1..10) add(com.freease.music.data.db.PlayStamp(at(2, d, 22), 20 * 60_000L))
+            // Satu hari maraton di Agustus.
+            add(com.freease.music.data.db.PlayStamp(at(7, 17, 14), 300 * 60_000L))
+            // Tahun lain diabaikan.
+            add(com.freease.music.data.db.PlayStamp(java.util.Calendar.getInstance(tz).apply { clear(); set(2025, 11, 31, 12, 0) }.timeInMillis, 999 * 60_000L))
+        }
+        val i = com.freease.music.data.wrapped.YearlyInsights.compute(stamps, 2026, tz)
+        org.junit.Assert.assertEquals(500, i.totalMin)
+        org.junit.Assert.assertEquals(7, i.topMonth) // Agustus (300 mnt) > Maret (200 mnt)
+        org.junit.Assert.assertEquals(10, i.longestStreak)
+        org.junit.Assert.assertEquals(11, i.activeDays)
+        org.junit.Assert.assertEquals(300, i.busiestDayMin)
+        org.junit.Assert.assertEquals(14, i.peakHour)
+        org.junit.Assert.assertEquals("owl", com.freease.music.data.wrapped.YearlyInsights.persona(i.copy(nightShare = 0.5), 20, 0.1).id)
+    }
+}

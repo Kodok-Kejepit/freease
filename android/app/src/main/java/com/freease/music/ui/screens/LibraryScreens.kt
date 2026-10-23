@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
@@ -175,6 +176,16 @@ fun LibraryScreen() {
                         Box(Modifier.fillMaxSize().background(Freease.accent.brush), contentAlignment = Alignment.Center) {
                             Icon(Icons.Rounded.CalendarMonth, null, tint = Color.White, modifier = Modifier.size(30.dp))
                         }
+                    }
+                }
+                item {
+                    FixedRow("Freease Wrapped", "Rekap setahun: artis, lagu, dan tipe pendengarmu", onClick = {
+                        actions.navigate(Routes.wrapped(com.freease.music.ui.screens.defaultWrappedYear()))
+                    }) {
+                        Box(
+                            Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF7B4DFF), Color(0xFFE8115B), Color(0xFFFF6437)))),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(Icons.Rounded.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(30.dp)) }
                     }
                 }
                 item {

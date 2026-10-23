@@ -141,6 +141,10 @@ fun FreeaseRoot(container: AppContainer, onActionsReady: (AppActions) -> Unit) {
                     composable(Routes.RECOGNIZE, arguments = listOf(navArgument("auto") { type = NavType.BoolType; defaultValue = false })) {
                         com.freease.music.ui.screens.RecognizeScreen(it.arguments?.getBoolean("auto") ?: false)
                     }
+                    composable(Routes.WRAPPED, arguments = listOf(navArgument("year") { type = NavType.IntType; defaultValue = 0 })) {
+                        val y = it.arguments?.getInt("year") ?: 0
+                        com.freease.music.ui.screens.WrappedScreen(if (y > 0) y else com.freease.music.ui.screens.defaultWrappedYear())
+                    }
                     composable(Routes.ALARMS) { com.freease.music.ui.screens.AlarmScreen() }
                     composable(Routes.CAR) { com.freease.music.ui.screens.CarModeScreen() }
                     composable(Routes.LOCAL_MUSIC) { com.freease.music.ui.screens.LocalMusicScreen() }
@@ -169,7 +173,7 @@ fun FreeaseRoot(container: AppContainer, onActionsReady: (AppActions) -> Unit) {
 
                 val route = nav.currentBackStackEntryAsState().value?.destination?.route
                 // Mode Mobil memakai seluruh layar (tanpa mini player & navigasi bawah).
-                if (route != Routes.CAR) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                if (route != Routes.CAR && route != Routes.WRAPPED) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                     AnimatedVisibility(hasSong, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
                         MiniPlayer(Modifier.padding(bottom = 4.dp))
                     }

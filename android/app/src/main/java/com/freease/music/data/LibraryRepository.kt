@@ -189,6 +189,29 @@ class LibraryRepository(private val db: FreeaseDatabase) {
         )
     }
 
+    /** Rekap setahun (Freease Wrapped). */
+    suspend fun wrapped(year: Int): com.freease.music.data.wrapped.WrappedReport {
+        val cal = java.util.Calendar.getInstance().apply { clear(); set(year, 0, 1) }
+        val from = cal.timeInMillis
+        cal.add(java.util.Calendar.YEAR, 1)
+        val to = cal.timeInMillis
+        val insights = com.freease.music.data.wrapped.YearlyInsights.compute(history.stampsBetween(from, to), year)
+        val topArtists = history.topArtistsBetween(from, to, 5)
+        val total = history.totalMsBetween(from, to)
+        val share = if (total > 0) (topArtists.firstOrNull()?.ms ?: 0L).toDouble() / total else 0.0
+        val distinctArtists = history.distinctArtistsBetween(from, to)
+        return com.freease.music.data.wrapped.WrappedReport(
+            year = year,
+            insights = insights,
+            topSongs = history.topSongsBetween(from, to, 50),
+            topArtists = topArtists,
+            distinctSongs = history.distinctSongsBetween(from, to),
+            distinctArtists = distinctArtists,
+            persona = com.freease.music.data.wrapped.YearlyInsights.persona(insights, distinctArtists, share),
+            topArtistShare = share,
+        )
+    }
+
     // ---------------------------------------------------------------- cadangan
 
     suspend fun exportBackup(): BackupData {
