@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -198,6 +199,7 @@ fun HomeScreen() {
                             fontWeight = FontWeight.ExtraBold,
                             modifier = Modifier.weight(1f),
                         )
+                        IconButton(onClick = { actions.navigate(Routes.CAR) }) { Icon(Icons.Rounded.DirectionsCar, "Mode Mobil") }
                         IconButton(onClick = { actions.navigate(Routes.STATS) }) { Icon(Icons.Rounded.BarChart, "Statistik") }
                         IconButton(onClick = { actions.navigate(Routes.HISTORY) }) { Icon(Icons.Rounded.History, "Riwayat") }
                         IconButton(onClick = { actions.navigate(Routes.SETTINGS) }) { Icon(Icons.Rounded.Settings, "Pengaturan") }

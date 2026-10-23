@@ -23,7 +23,8 @@ import com.freease.music.playback.loudness.NormalizingAudioProcessor
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.freease.music.FreeaseApp
@@ -61,7 +62,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @UnstableApi
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
     private val container get() = (application as FreeaseApp).container
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val handler = Handler(Looper.getMainLooper())
@@ -78,7 +79,8 @@ class PlaybackService : MediaSessionService() {
             container.appScope.launch(Dispatchers.IO) { container.loudness.save() }
         }
     }
-    private var session: MediaSession? = null
+    private var session: MediaLibraryService.MediaLibrarySession? = null
+    private val tree by lazy { LibraryTree(container) }
 
     private val likeCommand = SessionCommand(ACTION_LIKE, Bundle.EMPTY)
     private val retries = HashMap<String, Int>()
@@ -153,9 +155,9 @@ class PlaybackService : MediaSessionService() {
                 .putExtra(MainActivity.EXTRA_OPEN_PLAYER, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        session = MediaSession.Builder(this, player)
+        session = MediaLibraryService.MediaLibrarySession.Builder(this, player, SessionCallback())
             .setSessionActivity(activity)
-            .setCallback(SessionCallback())
+            .setBitmapLoader(CoilBitmapLoader(this, scope))
             .build()
 
         setMediaNotificationProvider(
@@ -174,7 +176,7 @@ class PlaybackService : MediaSessionService() {
         if (settings.resumeOnStart) restoreQueue()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibraryService.MediaLibrarySession? = session
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_WIDGET) {
@@ -751,12 +753,12 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private inner class SessionCallback : MediaSession.Callback {
+    private inner class SessionCallback : MediaLibraryService.MediaLibrarySession.Callback {
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
-            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+            val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                 .add(likeCommand)
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -789,7 +791,89 @@ class PlaybackService : MediaSessionService() {
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
-        ): ListenableFuture<MutableList<MediaItem>> = scope.future { preparePlayback(mediaItems) }
+        ): ListenableFuture<MutableList<MediaItem>> = scope.future { preparePlayback(fromBrowser(mediaItems)) }
+
+        /** Item dari pohon jelajah ("folder|videoId") → item lagu biasa beserta datanya. */
+        private suspend fun fromBrowser(items: List<MediaItem>): List<MediaItem> = items.map { item ->
+            if (LibraryTree.SEP !in item.mediaId) return@map item
+            val real = tree.realId(item.mediaId)
+            val song = withContext(Dispatchers.IO) { container.db.songs().get(real)?.toSong() }
+                ?: MediaItems.toSong(item).copy(id = real)
+            MediaItems.fromSong(song)
+        }
+
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = scope.future {
+            // Dipilih dari Android Auto: putar seluruh folder mulai dari lagu itu.
+            val expanded = tree.expand(mediaItems)
+            if (expanded != null) {
+                val (songs, index) = expanded
+                MediaSession.MediaItemsWithStartPosition(preparePlayback(songs.map(MediaItems::fromSong)), index, 0L)
+            } else {
+                MediaSession.MediaItemsWithStartPosition(preparePlayback(fromBrowser(mediaItems)), startIndex, startPositionMs)
+            }
+        }
+
+        override fun onGetLibraryRoot(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: MediaLibraryService.LibraryParams?,
+        ): ListenableFuture<LibraryResult<MediaItem>> = Futures.immediateFuture(LibraryResult.ofItem(tree.root(), params))
+
+        override fun onGetChildren(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future {
+            LibraryResult.ofItemList(paged(tree.children(parentId), page, pageSize), params)
+        }
+
+        override fun onGetItem(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String,
+        ): ListenableFuture<LibraryResult<MediaItem>> = scope.future {
+            val found = (tree.children(LibraryTree.ROOT) + listOf(tree.root())).firstOrNull { it.mediaId == mediaId }
+                ?: withContext(Dispatchers.IO) { container.db.songs().get(tree.realId(mediaId))?.toSong() }?.let(MediaItems::fromSong)
+            if (found != null) LibraryResult.ofItem(found, null) else LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+        }
+
+        override fun onSearch(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: MediaLibraryService.LibraryParams?,
+        ): ListenableFuture<LibraryResult<Void>> = scope.future {
+            val results = tree.search(query)
+            session.notifySearchResultChanged(browser, query, results.size, params)
+            LibraryResult.ofVoid()
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibraryService.MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = scope.future {
+            val cached = tree.children(LibraryTree.SEARCH_PREFIX + query)
+            LibraryResult.ofItemList(paged(cached.ifEmpty { tree.search(query) }, page, pageSize), params)
+        }
+
+        private fun paged(all: List<MediaItem>, page: Int, pageSize: Int): ImmutableList<MediaItem> {
+            val from = (page.toLong() * pageSize).coerceAtMost(all.size.toLong()).toInt()
+            val to = (from.toLong() + pageSize).coerceAtMost(all.size.toLong()).toInt()
+            return ImmutableList.copyOf(all.subList(from, to))
+        }
 
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
