@@ -206,6 +206,13 @@ fun SettingsScreen() {
         }
         item { Item("Kualitas video", "Maksimal ${s.videoQuality}p", onClick = { dialog = "video" }) }
         item {
+            Item(
+                "Canvas",
+                listOf("Mati", "Hanya Wi-Fi", "Selalu")[s.canvasMode.coerceIn(0, 2)] + " — video pendek berulang di belakang player",
+                onClick = { dialog = "canvas" },
+            )
+        }
+        item {
             SwitchItem(
                 "Normalisasi volume",
                 "Semua lagu terdengar sama keras, tanpa perlu atur volume tiap ganti lagu",
@@ -381,6 +388,11 @@ fun SettingsScreen() {
             "Tidur otomatis jika tidak disentuh",
             listOf(0 to "Mati", 30 to "30 menit", 60 to "1 jam", 90 to "1,5 jam", 120 to "2 jam"),
             s.idleSleepMin, { dialog = null }, c.settings::setIdleSleepMin,
+        )
+        "canvas" -> ChoiceDialog(
+            "Canvas",
+            listOf(0 to "Mati", 1 to "Hanya Wi-Fi (disarankan)", 2 to "Selalu (±0,5 MB per lagu)"),
+            s.canvasMode, { dialog = null }, c.settings::setCanvasMode,
         )
         "video" -> ChoiceDialog(
             "Kualitas video maksimal",

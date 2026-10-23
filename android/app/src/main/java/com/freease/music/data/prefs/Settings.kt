@@ -63,6 +63,8 @@ data class AppSettings(
     val smartMode: Boolean = true,
     /** Mode acak yang menyelipkan rekomendasi berdasarkan isi playlist (tombol acak ditekan 2×). */
     val smartShuffle: Boolean = false,
+    /** Canvas (video pendek berulang di player): 0 = mati, 1 = hanya Wi-Fi, 2 = selalu. */
+    val canvasMode: Int = 1,
     /** Suasana Freease Pintar: "" (biasa), "focus", "chill", "workout", "sleep". */
     val smartMood: String = "",
     /** Kualitas yang dipakai saat di jaringan seluler (kalau [saverOnCellular] aktif). */
@@ -107,6 +109,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val resume = booleanPreferencesKey("resume_on_start")
         val smart = booleanPreferencesKey("smart_mode")
         val smartShuffle = booleanPreferencesKey("smart_shuffle")
+        val canvas = intPreferencesKey("canvas_mode")
         val mood = stringPreferencesKey("smart_mood")
         val cellularQuality = stringPreferencesKey("cellular_quality")
         val autoDl = booleanPreferencesKey("auto_download")
@@ -145,6 +148,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         resumeOnStart = p[K.resume] ?: true,
         smartMode = p[K.smart] ?: true,
         smartShuffle = p[K.smartShuffle] ?: false,
+        canvasMode = p[K.canvas] ?: 1,
         smartMood = p[K.mood] ?: "",
         cellularQuality = p[K.cellularQuality]?.let { runCatching { AudioQuality.valueOf(it) }.getOrNull() } ?: AudioQuality.SAVER,
         autoDownload = p[K.autoDl] ?: false,
@@ -208,6 +212,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setResumeOnStart(v: Boolean) = edit { it[K.resume] = v }
     fun setSmartMode(v: Boolean) = edit { it[K.smart] = v }
     fun setSmartShuffle(v: Boolean) = edit { it[K.smartShuffle] = v }
+    fun setCanvasMode(v: Int) = edit { it[K.canvas] = v }
     fun setSmartMood(v: String) = edit { it[K.mood] = v }
     fun setCellularQuality(v: AudioQuality) = edit { it[K.cellularQuality] = v.name }
     fun setAutoDownload(v: Boolean) = edit { it[K.autoDl] = v }

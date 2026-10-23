@@ -98,6 +98,7 @@ class AppContainer(private val context: Context) {
 
     /** Pencarian yang diminta layar lain (mis. hasil Kenali Lagu) untuk dijalankan tab Cari. */
     val pendingSearch = MutableStateFlow<String?>(null)
+    val canvas by lazy { com.freease.music.playback.CanvasResolver(context, youtube) }
     val songParams by lazy { com.freease.music.playback.SongParams(context) }
 
     /** Mode Karaoke: vokal dihilangkan dari audio (tidak diingat setelah app ditutup). */

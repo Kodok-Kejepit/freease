@@ -77,6 +77,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -119,6 +121,7 @@ fun PlayerScreen(onCollapse: () -> Unit) {
     var showSleep by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     var fullscreen by rememberSaveable { mutableStateOf(false) }
+    var canvasReady by remember { mutableStateOf(false) }
     val sleep by actions.container.sleepTimer.state.collectAsState()
 
     BackHandler(enabled = !fullscreen && !actions.showLyrics) { onCollapse() }
@@ -137,6 +140,9 @@ fun PlayerScreen(onCollapse: () -> Unit) {
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val pageHeight = maxHeight
+            if (!videoMode && !song.isLive && !song.isLocal) {
+                CanvasBackground(song, state.isPlaying, Modifier.fillMaxWidth().height(pageHeight)) { canvasReady = it }
+            }
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                 Column(
                     Modifier
@@ -154,7 +160,9 @@ fun PlayerScreen(onCollapse: () -> Unit) {
                         if ((videoMode && !song.isLocal) || song.isLive) {
                             VideoSurface(state, onFullscreen = { fullscreen = true })
                         } else {
-                            SwipeArtwork(song, state)
+                            // Canvas tampil: sampul memudar tapi tetap bisa digeser untuk ganti lagu.
+                            val artAlpha by animateFloatAsState(if (canvasReady) 0f else 1f, tween(600), label = "artAlpha")
+                            Box(Modifier.alpha(artAlpha)) { SwipeArtwork(song, state) }
                         }
                     }
                     TitleRow(song)
