@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -176,6 +177,8 @@ fun HomeScreen() {
     val mostPlayed by remember { actions.library.mostPlayed(12) }.collectAsState(emptyList())
     val playlists by remember { actions.library.playlistSummaries() }.collectAsState(emptyList())
     val likedCount by remember { actions.library.likedCount() }.collectAsState(0)
+    val mixes by actions.container.dailyMix.mixes.collectAsState()
+    LaunchedEffect(Unit) { actions.container.dailyMix.ensureFresh() }
     val accent = Freease.accent
 
     PullToRefreshBox(isRefreshing = vm.refreshing.value, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
@@ -267,6 +270,12 @@ fun HomeScreen() {
                         actions.player.play(feed.quickPicks, from = "Pilihan cepat")
                     })
                     QuickPicksGrid(feed.quickPicks)
+                }
+            }
+            if (mixes.isNotEmpty()) {
+                item {
+                    SectionHeader("Daily Mix untukmu", subtitle = "Lagu favorit + temuan baru, diracik ulang tiap hari")
+                    DailyMixRow(mixes)
                 }
             }
             if (recent.isNotEmpty()) {

@@ -41,10 +41,12 @@ object Routes {
     const val LOCAL_MUSIC = "local_music"
     const val CAR = "car"
     const val ALARMS = "alarms"
+    const val MIX = "mix/{index}"
 
     fun artist(url: String) = "artist?url=${Uri.encode(url)}"
     fun playlist(url: String) = "playlist?url=${Uri.encode(url)}"
     fun local(id: Long) = "local/$id"
+    fun mix(index: Int) = "mix/$index"
     fun import(link: String = "") = "import?link=${Uri.encode(link)}"
     fun category(title: String, query: String) = "category?title=${Uri.encode(title)}&query=${Uri.encode(query)}"
 }

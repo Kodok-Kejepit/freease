@@ -78,6 +78,7 @@ class AppContainer(private val context: Context) {
     val localMusic = com.freease.music.data.local.LocalMusicRepository(context)
     val queueStore = QueueStore(context)
     val alarms = com.freease.music.data.alarm.AlarmStore(context)
+    val dailyMix = com.freease.music.data.mix.DailyMixRepository(File(context.filesDir, "daily_mix.json"), library, youtube)
 
     /** Data belajar Freease Pintar (database terpisah, dibuka hanya saat pertama dipakai). */
     private val tasteDb by lazy { com.freease.music.data.taste.TasteDatabase.build(context) }
