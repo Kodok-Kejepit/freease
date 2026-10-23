@@ -261,6 +261,23 @@ fun SettingsScreen() {
         item { SwitchItem("Kartu lirik di player", null, s.showLyricsCard, c.settings::setShowLyricsCard) }
         item {
             SwitchItem(
+                "Lirik melayang",
+                "Baris lirik tampil di atas aplikasi lain (bisa digeser)",
+                s.floatingLyrics,
+            ) { com.freease.music.playback.FloatingLyricsPermission.toggle(context, c) }
+        }
+        item {
+            SwitchItem(
+                "Lirik di notifikasi & layar kunci",
+                "Baris yang sedang dinyanyikan tampil di notifikasi",
+                s.lyricsNotification,
+                c.settings::setLyricsNotification,
+            )
+        }
+        item { SwitchItem("Karaoke per kata", "Baris aktif terisi warna mengikuti nyanyian", s.karaokeLyrics, c.settings::setKaraokeLyrics) }
+        item { SwitchItem("Cara baca latin", "Untuk lirik Korea & Jepang (hangul/kana)", s.romanizeLyrics, c.settings::setRomanizeLyrics) }
+        item {
+            SwitchItem(
                 "Sinkron lirik otomatis",
                 "Untuk video klip: lirik dicocokkan dengan suara video (±1,5 MB sekali per lagu)",
                 s.autoSyncLyrics,

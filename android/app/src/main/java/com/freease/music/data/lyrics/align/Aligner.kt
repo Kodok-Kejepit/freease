@@ -355,7 +355,8 @@ fun com.freease.music.data.model.Lyrics.alignedWith(map: AlignmentMap): com.free
     for (line in src) {
         val t = map.map(line.timeMs) ?: continue
         if (t < last) continue
-        out += line.copy(timeMs = t)
+        // Kata-kata ikut bergeser sejauh barisnya (satu baris tidak terpotong di tengah).
+        out += line.copy(timeMs = t, words = line.words?.map { it.copy(timeMs = it.timeMs + (t - line.timeMs)) })
         last = t
     }
     val sung = src.count { it.text.isNotBlank() }

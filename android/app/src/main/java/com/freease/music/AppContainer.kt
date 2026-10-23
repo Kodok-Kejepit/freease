@@ -89,6 +89,9 @@ class AppContainer(private val context: Context) {
     /** true = tampilkan video (HD) di player; false = audio saja (hemat data & baterai). */
     val videoMode = MutableStateFlow(false)
 
+    /** true selama layar Freease terlihat (untuk menyembunyikan lirik melayang). */
+    val appVisible = MutableStateFlow(false)
+
     val mediaCache: SimpleCache by lazy {
         val mb = settings.current.cacheSizeMb
         val evictor = if (mb <= 0) NoOpCacheEvictor() else LeastRecentlyUsedCacheEvictor(mb * 1024L * 1024L)

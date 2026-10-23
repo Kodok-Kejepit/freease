@@ -53,11 +53,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        container.appVisible.value = true
         container.player.connect()
     }
 
     override fun onStop() {
         super.onStop()
+        container.appVisible.value = false
         if (!isChangingConfigurations) container.player.disconnect()
     }
 

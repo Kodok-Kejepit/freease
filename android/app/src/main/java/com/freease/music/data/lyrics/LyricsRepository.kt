@@ -4,6 +4,7 @@ import com.freease.music.data.lyrics.align.AutoSyncResult
 import com.freease.music.data.lyrics.align.LyricsAutoSync
 import com.freease.music.data.lyrics.align.alignedWith
 import com.freease.music.data.model.LyricLine
+import com.freease.music.data.model.LyricWord
 import com.freease.music.data.model.Lyrics
 import com.freease.music.data.model.Song
 import kotlinx.coroutines.CancellationException
@@ -288,7 +289,15 @@ class LyricsRepository(
 
         fun encode(l: Lyrics): JSONObject = JSONObject().apply {
             put("v", 3)
-            l.synced?.let { lines -> put("s", JSONArray().also { a -> lines.forEach { a.put(JSONArray().put(it.timeMs).put(it.text)) } }) }
+            l.synced?.let { lines ->
+                put("s", JSONArray().also { a ->
+                    lines.forEach { line ->
+                        val row = JSONArray().put(line.timeMs).put(line.text)
+                        line.words?.let { ws -> row.put(JSONArray().also { wa -> ws.forEach { wa.put(it.timeMs).put(it.start).put(it.end) } }) }
+                        a.put(row)
+                    }
+                })
+            }
             l.plain?.let { put("p", it) }
             put("src", l.source)
             if (l.offsetMs != 0L) put("o", l.offsetMs)
@@ -302,7 +311,14 @@ class LyricsRepository(
         fun decode(o: JSONObject): Lyrics {
             val arr = o.optJSONArray("s")
             val synced = arr?.let { a ->
-                (0 until a.length()).map { i -> a.getJSONArray(i).let { LyricLine(it.getLong(0), it.getString(1)) } }
+                (0 until a.length()).map { i ->
+                    a.getJSONArray(i).let { row ->
+                        val words = row.optJSONArray(2)?.let { wa ->
+                            (0 until wa.length() / 3).map { k -> LyricWord(wa.getLong(k * 3), wa.getInt(k * 3 + 1), wa.getInt(k * 3 + 2)) }
+                        }?.takeIf { it.isNotEmpty() }
+                        LyricLine(row.getLong(0), row.getString(1), words)
+                    }
+                }
             }?.takeIf { it.isNotEmpty() }
             return Lyrics(
                 synced = synced,

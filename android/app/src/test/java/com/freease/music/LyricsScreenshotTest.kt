@@ -75,6 +75,11 @@ class LyricsScreenshotTest {
         seed(c, mid.id, Lyrics(lines, null, "Sumber: LRCLIB", offsetMs = -25_000, userSynced = true))
         val intro = Song("lyrIntro", "Hati-Hati di Jalan", "Tulus", durationSec = 243)
         seed(c, intro.id, Lyrics(lines, null, "Sumber: LyricFind", autoSync = Lyrics.AutoSync.DONE, timingRefId = "ref"))
+        // Lagu Korea: offset −26 dtk → posisi 0 = 1,15 dtk ke dalam baris ke-4 (karaoke terisi sebagian).
+        val kor = Song("lyrKor", "APT.", "ROSÉ & Bruno Mars", durationSec = 170)
+        val korLines = listOf("채영이가 좋아하는 랜덤게임", "랜덤게임 Game start", "아파트 아파트", "Kissy face, kissy face", "사랑해 너를 원해", "Uh, uh-huh, uh-huh")
+            .mapIndexed { i, w -> LyricLine(13_000L + i * 4_000L, w) }
+        seed(c, kor.id, Lyrics(korLines, null, "Sumber: LRCLIB", offsetMs = -26_000, userSynced = true))
         val tap = Song("lyrTap", "Hati-Hati di Jalan (Official Music Video)", "Tulus", durationSec = 300)
         seed(c, tap.id, Lyrics(lines, null, "Sumber: LRCLIB", timingTrusted = false, autoSync = Lyrics.AutoSync.NOT_MATCHING, timingRefId = "ref"))
 
@@ -89,18 +94,27 @@ class LyricsScreenshotTest {
                         0 -> LyricsScreen(mid, Color(0xFF7A3FB0), onClose = {})
                         1 -> LyricsScreen(intro, Color(0xFF2F6F8F), onClose = {})
                         2 -> LyricsScreen(tap, Color(0xFF8F4A2F), onClose = {})
-                        else -> Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 40.dp)) {
+                        4 -> LyricsScreen(kor, Color(0xFFB0306A), onClose = {})
+                        3 -> Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 40.dp)) {
                             LyricsCard(mid, Color(0xFF7A3FB0), onExpand = {}, Modifier.padding(16.dp))
                         }
+                        else -> Unit
                     }
                 }
             }
         }
-        val names = listOf("lyrics_1_following", "lyrics_2_intro", "lyrics_3_tap", "lyrics_4_card")
+        val names = listOf("lyrics_1_following", "lyrics_2_intro", "lyrics_3_tap", "lyrics_4_card", "lyrics_5_korean")
         for (i in names.indices) {
             compose.runOnUiThread { mode.intValue = i }
             settle(2_500)
             compose.onRoot().captureRoboImage("$out/${names[i]}.png")
         }
+        // Kartu lirik untuk dibagikan.
+        val card = com.freease.music.ui.player.LyricsCardRenderer.render(
+            mid, listOf("Ku bertemu kamu", "Sepertimu yang kucari", "Konon aku juga seperti yang kau cari"),
+            com.freease.music.ui.player.CardStyle(0xFF7A3FB0.toInt(), 0xFF2A1240.toInt(), 0xFFFFFFFF.toInt()), null,
+        )
+        java.io.File(out).mkdirs()
+        java.io.File(out, "lyrics_6_sharecard.png").outputStream().use { card.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
     }
 }

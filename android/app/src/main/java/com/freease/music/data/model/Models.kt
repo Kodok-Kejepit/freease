@@ -51,8 +51,13 @@ sealed interface BrowseResult {
     data class ArtistResult(val artist: ArtistItem) : BrowseResult
 }
 
+/** Satu kata dengan waktu mulainya; [start] = posisi karakter kata itu di teks baris. */
 @Immutable
-data class LyricLine(val timeMs: Long, val text: String)
+data class LyricWord(val timeMs: Long, val start: Int, val end: Int)
+
+/** [words] diisi kalau sumber lirik memberi waktu per kata (LRC "enhanced"). */
+@Immutable
+data class LyricLine(val timeMs: Long, val text: String, val words: List<LyricWord>? = null)
 
 @Immutable
 data class Lyrics(

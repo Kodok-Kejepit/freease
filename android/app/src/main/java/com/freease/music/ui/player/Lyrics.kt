@@ -37,6 +37,20 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.PictureInPicture
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipPath
+import com.freease.music.data.lyrics.Karaoke
+import com.freease.music.playback.FloatingLyricsPermission
+import com.freease.music.data.lyrics.Romanizer
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
@@ -283,24 +297,59 @@ private fun CardFollowing(l: Lyrics) {
 @Composable
 fun LyricsScreen(song: Song, color: Color, onClose: () -> Unit) {
     val actions = LocalActions.current
+    val context = LocalContext.current
     val repo = actions.container.lyrics
     BackHandler(onBack = onClose)
     val state by rememberLyricsState(song)
     val bg by animateColorAsState(color, tween(600), label = "lyricsBg")
     var showSync by remember(song.id) { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    var selected by remember(song.id) { mutableStateOf<Set<Int>?>(null) }
+    var sharing by remember { mutableStateOf<List<String>?>(null) }
+    val settings by actions.container.settings.flow.collectAsStateWithLifecycle()
     val ready = (state as? LyricsState.Ready)?.lyrics
+    BackHandler(enabled = selected != null) { selected = null }
 
     Column(Modifier.fillMaxSize().background(bg).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onClose) { Icon(Icons.Rounded.KeyboardArrowDown, "Tutup", modifier = Modifier.padding(2.dp)) }
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(song.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(song.artist, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
+            IconButton(onClick = { if (selected != null) selected = null else onClose() }) {
+                Icon(if (selected != null) Icons.Rounded.Close else Icons.Rounded.KeyboardArrowDown, "Tutup", modifier = Modifier.padding(2.dp))
             }
-            if (ready?.synced != null) {
-                IconButton(onClick = { showSync = !showSync }) { Icon(Icons.Rounded.Tune, "Atur sinkron lirik", modifier = Modifier.padding(2.dp)) }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (selected != null) {
+                    Text("Pilih baris untuk kartu", style = MaterialTheme.typography.titleSmall)
+                    Text("${selected!!.size} dipilih · maks. 6", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
+                } else {
+                    Text(song.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(song.artist, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f), maxLines = 1)
+                }
+            }
+            if (selected != null) {
+                TextButton(
+                    onClick = {
+                        val lines = ready?.synced.orEmpty()
+                        sharing = selected!!.sorted().mapNotNull { lines.getOrNull(it)?.text?.takeIf { t -> t.isNotBlank() && t != "♪" } }
+                        selected = null
+                    },
+                    enabled = selected!!.isNotEmpty(),
+                ) { Text("Lanjut", color = Color.White, fontWeight = FontWeight.Bold) }
             } else {
-                Spacer(Modifier.width(48.dp))
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Opsi lirik", modifier = Modifier.padding(2.dp)) }
+                    LyricsMenu(
+                        expanded = menu,
+                        onDismiss = { menu = false },
+                        hasSynced = ready?.synced != null,
+                        karaoke = settings.karaokeLyrics,
+                        romanize = settings.romanizeLyrics,
+                        floating = settings.floatingLyrics,
+                        onKaraoke = { actions.container.settings.setKaraokeLyrics(!settings.karaokeLyrics) },
+                        onRomanize = { actions.container.settings.setRomanizeLyrics(!settings.romanizeLyrics) },
+                        onFloating = { FloatingLyricsPermission.toggle(context, actions.container) },
+                        onShareCard = { selected = emptySet() },
+                        onSync = { showSync = !showSync },
+                    )
+                }
             }
         }
         when (val s = state) {
@@ -310,10 +359,74 @@ fun LyricsScreen(song: Song, color: Color, onClose: () -> Unit) {
                 val l = s.lyrics
                 when {
                     l.isEmpty -> Message("Lirik belum tersedia", "Belum ada lirik yang cocok untuk lagu ini.", "Cari ulang") { repo.refresh(song) }
-                    l.synced != null -> SyncedLyrics(song, l, showSync, syncing = s.syncing)
+                    l.synced != null -> SyncedLyrics(
+                        song, l, showSync, syncing = s.syncing,
+                        karaoke = settings.karaokeLyrics,
+                        romanize = settings.romanizeLyrics,
+                        selected = selected,
+                        onSelect = { i ->
+                            val cur = selected ?: emptySet()
+                            selected = when {
+                                i in cur -> cur - i
+                                cur.size >= 6 -> cur
+                                else -> cur + i
+                            }
+                        },
+                    )
                     else -> PlainLyrics(l)
                 }
             }
+        }
+    }
+    sharing?.let { lines -> ShareLyricsSheet(song, lines, color) { sharing = null } }
+}
+
+@Composable
+private fun LyricsMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    hasSynced: Boolean,
+    karaoke: Boolean,
+    romanize: Boolean,
+    floating: Boolean,
+    onKaraoke: () -> Unit,
+    onRomanize: () -> Unit,
+    onFloating: () -> Unit,
+    onShareCard: () -> Unit,
+    onSync: () -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        if (hasSynced) {
+            DropdownMenuItem(
+                text = { Text("Bagikan kartu lirik") },
+                leadingIcon = { Icon(Icons.Rounded.Share, null) },
+                onClick = { onDismiss(); onShareCard() },
+            )
+        }
+        DropdownMenuItem(
+            text = { Text("Karaoke per kata") },
+            leadingIcon = { Icon(Icons.Rounded.Mic, null) },
+            trailingIcon = { if (karaoke) Icon(Icons.Rounded.Check, null) },
+            onClick = { onDismiss(); onKaraoke() },
+        )
+        DropdownMenuItem(
+            text = { Text("Cara baca latin (Korea/Jepang)") },
+            leadingIcon = { Icon(Icons.Rounded.Translate, null) },
+            trailingIcon = { if (romanize) Icon(Icons.Rounded.Check, null) },
+            onClick = { onDismiss(); onRomanize() },
+        )
+        DropdownMenuItem(
+            text = { Text("Lirik melayang") },
+            leadingIcon = { Icon(Icons.Rounded.PictureInPicture, null) },
+            trailingIcon = { if (floating) Icon(Icons.Rounded.Check, null) },
+            onClick = { onDismiss(); onFloating() },
+        )
+        if (hasSynced) {
+            DropdownMenuItem(
+                text = { Text("Atur sinkron lirik") },
+                leadingIcon = { Icon(Icons.Rounded.Tune, null) },
+                onClick = { onDismiss(); onSync() },
+            )
         }
     }
 }
@@ -357,7 +470,16 @@ private fun PlainLyrics(l: Lyrics) {
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean, syncing: Boolean) {
+private fun SyncedLyrics(
+    song: Song,
+    l: Lyrics,
+    showSync: Boolean,
+    syncing: Boolean,
+    karaoke: Boolean,
+    romanize: Boolean,
+    selected: Set<Int>?,
+    onSelect: (Int) -> Unit,
+) {
     val actions = LocalActions.current
     val repo = actions.container.lyrics
     val ctx = LocalContext.current
@@ -390,6 +512,7 @@ private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean, syncing: Bool
     }
 
     val listState = rememberLazyListState()
+    val romanized = remember(lines, romanize) { if (romanize) lines.map { Romanizer.romanize(it.text) } else emptyList() }
     var lastDrag by remember { mutableLongStateOf(0L) }
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { if (it is DragInteraction.Start) lastDrag = SystemClock.uptimeMillis() }
@@ -401,7 +524,7 @@ private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean, syncing: Bool
     LaunchedEffect(idx, intro) {
         // Baris aktif dijaga di sekitar sepertiga atas layar. Jangan merebut gulir kalau pengguna baru
         // saja menggulir sendiri (mis. membaca baris berikutnya).
-        if (!following || SystemClock.uptimeMillis() - lastDrag < 3_500) return@LaunchedEffect
+        if (!following || selected != null || SystemClock.uptimeMillis() - lastDrag < 3_500) return@LaunchedEffect
         val viewport = listState.layoutInfo.viewportSize.height
         listState.animateScrollToItem((idx + shift).coerceAtLeast(0), -(viewport * 0.3f).toInt())
     }
@@ -428,7 +551,8 @@ private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean, syncing: Bool
                 },
                 tween(180, easing = FastOutSlowInEasing), label = "line",
             )
-            val scale by animateFloatAsState(if (following && !active) 0.96f else 1f, tween(250), label = "lineScale")
+            val scale by animateFloatAsState(if (following && !active && selected == null) 0.96f else 1f, tween(250), label = "lineScale")
+            val isSelected = selected?.contains(i) == true
             val modifier = Modifier
                 .fillMaxWidth()
                 .graphicsLayer {
@@ -437,28 +561,30 @@ private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean, syncing: Bool
                     transformOrigin = TransformOrigin(0f, 0.5f)
                 }
                 .clip(RoundedCornerShape(8.dp))
+                .background(if (isSelected) Color.White.copy(alpha = 0.18f) else Color.Transparent)
                 .combinedClickable(
                     onClick = {
-                        if (following) {
-                            actions.player.seekTo((line.timeMs + l.offsetMs).coerceAtLeast(0))
-                            lastDrag = 0L
-                        } else if (line.text.isNotBlank() && line.text != "♪") {
-                            // Baris ini baru mulai dinyanyikan → selisihnya jadi geseran sinkron
-                            // (dikurangi waktu reaksi jari yang selalu sedikit terlambat).
-                            val offset = (actions.player.currentPosition() - line.timeMs - TAP_REACTION_MS)
-                                .coerceIn(-MAX_OFFSET, MAX_OFFSET)
-                            repo.setSync(song.id, offset, userSynced = true)
+                        when {
+                            selected != null -> if (line.text.isNotBlank() && line.text != "♪") onSelect(i)
+                            following -> {
+                                actions.player.seekTo((line.timeMs + l.offsetMs).coerceAtLeast(0))
+                                lastDrag = 0L
+                            }
+                            line.text.isNotBlank() && line.text != "♪" -> {
+                                // Baris ini baru mulai dinyanyikan → selisihnya jadi geseran sinkron
+                                // (dikurangi waktu reaksi jari yang selalu sedikit terlambat).
+                                val offset = (actions.player.currentPosition() - line.timeMs - TAP_REACTION_MS)
+                                    .coerceIn(-MAX_OFFSET, MAX_OFFSET)
+                                repo.setSync(song.id, offset, userSynced = true)
+                            }
                         }
                     },
                     onLongClick = {
-                        if (line.text.isNotBlank()) {
-                            val send = Intent(Intent.ACTION_SEND).setType("text/plain")
-                                .putExtra(Intent.EXTRA_TEXT, "\"${line.text}\"\n${song.title} - ${song.artist}")
-                            ctx.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        }
+                        // Tahan baris = mulai memilih baris untuk kartu lirik.
+                        if (line.text.isNotBlank() && line.text != "♪") onSelect(i)
                     },
                 )
-                .padding(vertical = 8.dp)
+                .padding(vertical = 8.dp, horizontal = if (selected != null) 8.dp else 0.dp)
             if (line.text.isBlank() || line.text == "♪") {
                 // Jeda instrumental di tengah lagu.
                 val next = lines.getOrNull(i + 1)?.timeMs?.plus(l.offsetMs)
@@ -466,7 +592,27 @@ private fun SyncedLyrics(song: Song, l: Lyrics, showSync: Boolean, syncing: Bool
                 val progress = if (active && next != null && next > start) ((position - start).toFloat() / (next - start)).coerceIn(0f, 1f) else if (i < idx) 1f else 0f
                 Box(modifier) { InstrumentalDots(progress, active) }
             } else {
-                Text(line.text, fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, color = c, modifier = modifier)
+                Column(modifier) {
+                    if (active && following && karaoke && selected == null) {
+                        val nextMs = lines.getOrNull(i + 1)?.timeMs
+                        KaraokeText(
+                            line.text,
+                            sung = { Karaoke.sungChars(line, nextMs, position - l.offsetMs + LOOKAHEAD_MS) },
+                        )
+                    } else {
+                        Text(line.text, fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold, color = c)
+                    }
+                    romanized.getOrNull(i)?.let { latin ->
+                        Text(
+                            latin,
+                            fontSize = 17.sp,
+                            lineHeight = 22.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = (if (active) Color.White else c).copy(alpha = if (active) 0.8f else 0.7f * c.alpha),
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
             }
         }
         if (l.source.isNotBlank()) {
@@ -533,3 +679,49 @@ private const val TAP_REACTION_MS = 250L
 
 /** Geseran maksimum (intro video klip bisa lebih dari satu menit). */
 private const val MAX_OFFSET = 10 * 60_000L
+
+
+/**
+ * Baris aktif yang terisi warna per kata seperti karaoke. Teks digambar dua kali: dasar redup, lalu
+ * versi terang yang dipotong sampai karakter yang sudah dinyanyikan ([sung] dibaca saat menggambar,
+ * jadi tidak memicu recomposition tiap frame).
+ */
+@Composable
+private fun KaraokeText(text: String, sung: () -> Float) {
+    var layout by remember(text) { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+    Box {
+        Text(
+            text, fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold,
+            color = Color.White.copy(alpha = 0.42f),
+            onTextLayout = { layout = it },
+        )
+        Text(
+            text, fontSize = 28.sp, lineHeight = 36.sp, fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            modifier = Modifier.drawWithContent {
+                val lay = layout ?: return@drawWithContent
+                val chars = sung().coerceIn(0f, text.length.toFloat())
+                if (chars <= 0f) return@drawWithContent
+                val path = androidx.compose.ui.graphics.Path()
+                for (ln in 0 until lay.lineCount) {
+                    val startC = lay.getLineStart(ln)
+                    val endC = lay.getLineEnd(ln)
+                    if (chars <= startC) break
+                    val top = lay.getLineTop(ln)
+                    val bottom = lay.getLineBottom(ln)
+                    val left = lay.getLineLeft(ln)
+                    val right = if (chars >= endC) {
+                        lay.getLineRight(ln)
+                    } else {
+                        val c0 = chars.toInt()
+                        val x0 = lay.getHorizontalPosition(c0, true)
+                        val x1 = lay.getHorizontalPosition((c0 + 1).coerceAtMost(endC), true)
+                        x0 + (x1 - x0) * (chars - c0)
+                    }
+                    path.addRect(androidx.compose.ui.geometry.Rect(left, top, right, bottom))
+                }
+                clipPath(path) { this@drawWithContent.drawContent() }
+            },
+        )
+    }
+}

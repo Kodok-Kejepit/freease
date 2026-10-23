@@ -68,6 +68,7 @@ class PlaybackService : MediaSessionService() {
 
     private lateinit var exo: ExoPlayer
     private lateinit var mixer: VolumeMixer
+    private lateinit var lyricsDisplay: LyricsDisplay
 
     /** Normalisasi volume (ITU-R BS.1770) di jalur audio ExoPlayer. */
     private val normalizer = NormalizingAudioProcessor { id, lufs, sec ->
@@ -168,6 +169,8 @@ class PlaybackService : MediaSessionService() {
         observeVideoMode()
         observeSleepTimer()
         observeLike()
+        lyricsDisplay = LyricsDisplay(this, c, scope) { exo }
+        lyricsDisplay.start()
         if (settings.resumeOnStart) restoreQueue()
     }
 
@@ -254,6 +257,7 @@ class PlaybackService : MediaSessionService() {
         flushListening()
         saveQueue()
         handler.removeCallbacksAndMessages(null)
+        if (::lyricsDisplay.isInitialized) lyricsDisplay.stop()
         container.effects.release()
         session?.run {
             player.release()
@@ -371,6 +375,7 @@ class PlaybackService : MediaSessionService() {
             flushListening(reason)
             normalizer.beginTrack(newId, newId?.let(container.loudness::get))
             trackingSong = mediaItem?.let(MediaItems::toSong)
+            lyricsDisplay.song.value = trackingSong
             trackingSong?.let { song -> scope.launch { container.library.touch(song) } }
 
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
@@ -395,6 +400,7 @@ class PlaybackService : MediaSessionService() {
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             updateWidget()
+            lyricsDisplay.playing.value = isPlaying
             if (isPlaying) {
                 consecutiveFailures = 0
                 startTicker()

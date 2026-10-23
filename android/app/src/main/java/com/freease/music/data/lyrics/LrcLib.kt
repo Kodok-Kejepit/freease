@@ -1,6 +1,7 @@
 package com.freease.music.data.lyrics
 
 import com.freease.music.data.model.LyricLine
+import com.freease.music.data.model.LyricWord
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -89,17 +90,55 @@ class LrcLib(private val client: OkHttpClient) : LrcSource {
         private fun JSONObject.str(key: String): String? =
             if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
 
-        /** Baris LRC "[mm:ss.xx] teks"; baris tanpa waktu (metadata) diabaikan. */
+        private val wordRe = Regex("<(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?>")
+
+        private fun ms(mm: String, ss: String, frac: String): Long = mm.toLong() * 60_000 + ss.toLong() * 1000 + when (frac.length) {
+            0 -> 0
+            1 -> frac.toInt() * 100
+            2 -> frac.toInt() * 10
+            else -> frac.take(3).toInt()
+        }
+
+        /**
+         * Baris LRC "[mm:ss.xx] teks"; baris tanpa waktu (metadata) diabaikan. Format "enhanced"
+         * "[00:12.00] <00:12.00> kata <00:12.40> kata" menghasilkan waktu per kata.
+         */
         fun parseLrc(lrc: String): List<LyricLine> = lrc.lineSequence().mapNotNull { raw ->
             val m = lineRe.find(raw.trim()) ?: return@mapNotNull null
-            val (mm, ss, frac, text) = m.destructured
-            val ms = when (frac.length) {
-                0 -> 0
-                1 -> frac.toInt() * 100
-                2 -> frac.toInt() * 10
-                else -> frac.take(3).toInt()
+            val (mm, ss, frac, body) = m.destructured
+            val lineMs = ms(mm, ss, frac)
+            if (!wordRe.containsMatchIn(body)) return@mapNotNull LyricLine(lineMs, body.trim())
+            val text = StringBuilder()
+            val words = ArrayList<LyricWord>()
+            var pos = 0
+            var pendingMs: Long? = null
+            for (tag in wordRe.findAll(body)) {
+                appendWords(body.substring(pos, tag.range.first), pendingMs, text, words)
+                pendingMs = ms(tag.groupValues[1], tag.groupValues[2], tag.groupValues[3])
+                pos = tag.range.last + 1
             }
-            LyricLine(mm.toLong() * 60_000 + ss.toLong() * 1000 + ms, text.trim())
+            appendWords(body.substring(pos), pendingMs, text, words)
+            val clean = text.toString()
+            val trimmed = clean.trimStart()
+            val cut = clean.length - trimmed.length
+            LyricLine(
+                lineMs, trimmed.trimEnd(),
+                words.map { it.copy(start = (it.start - cut).coerceAtLeast(0), end = (it.end - cut).coerceAtLeast(0)) }
+                    .filter { it.end > it.start }.takeIf { it.isNotEmpty() },
+            )
         }.sortedBy { it.timeMs }.toList()
+
+        private fun appendWords(raw: String, timeMs: Long?, text: StringBuilder, words: MutableList<LyricWord>) {
+            // Spasi di kedua sisi tag waktu tidak boleh jadi spasi ganda.
+            val chunk = if (text.isNotEmpty() && text.last().isWhitespace()) raw.trimStart() else raw
+            if (chunk.isEmpty()) return
+            val start = text.length
+            text.append(chunk)
+            val core = chunk.trimEnd()
+            if (timeMs != null && core.isNotBlank()) {
+                val lead = core.length - core.trimStart().length
+                words += LyricWord(timeMs, start + lead, start + core.length)
+            }
+        }
     }
 }
