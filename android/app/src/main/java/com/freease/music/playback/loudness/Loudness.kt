@@ -10,7 +10,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** Satu filter biquad (Direct Form I) per kanal. */
-private class Biquad(val b0: Double, val b1: Double, val b2: Double, val a1: Double, val a2: Double) {
+internal class Biquad(val b0: Double, val b1: Double, val b2: Double, val a1: Double, val a2: Double) {
     private var x1 = 0.0; private var x2 = 0.0; private var y1 = 0.0; private var y2 = 0.0
 
     fun process(x: Double): Double {
@@ -38,6 +38,14 @@ private class Biquad(val b0: Double, val b1: Double, val b2: Double, val a1: Dou
                 2 * ((a - 1) - (a + 1) * c) / a0,
                 ((a + 1) - (a - 1) * c - sa) / a0,
             )
+        }
+
+        fun lowPass(fs: Double, fc: Double, q: Double): Biquad {
+            val w = 2 * PI * fc / fs
+            val alpha = sin(w) / (2 * q)
+            val c = cos(w)
+            val a0 = 1 + alpha
+            return Biquad((1 - c) / 2 / a0, (1 - c) / a0, (1 - c) / 2 / a0, -2 * c / a0, (1 - alpha) / a0)
         }
 
         fun highPass(fs: Double, fc: Double, q: Double): Biquad {

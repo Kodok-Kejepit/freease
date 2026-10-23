@@ -80,6 +80,7 @@ class PlaybackService : MediaLibraryService() {
             container.appScope.launch(Dispatchers.IO) { container.loudness.save() }
         }
     }
+    private val karaoke = KaraokeAudioProcessor()
     private var session: MediaLibraryService.MediaLibrarySession? = null
     private val tree by lazy { LibraryTree(container) }
 
@@ -115,7 +116,7 @@ class PlaybackService : MediaLibraryService() {
                     ): AudioSink = DefaultAudioSink.Builder(context)
                         .setEnableFloatOutput(enableFloatOutput)
                         .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                        .setAudioProcessors(arrayOf(normalizer))
+                        .setAudioProcessors(arrayOf(normalizer, karaoke))
                         .build()
                 }
                     .setEnableDecoderFallback(true)
@@ -164,6 +165,7 @@ class PlaybackService : MediaLibraryService() {
         c.effects.attach(exo.audioSessionId, settings)
         observeSettings()
         observeVideoMode()
+        scope.launch { container.karaokeMode.collect { karaoke.enabled = it } }
         observeSleepTimer()
         observeLike()
         lyricsDisplay = LyricsDisplay(this, c, scope) { exo }
@@ -439,6 +441,15 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /** Kecepatan & nada yang diingat untuk lagu ini, atau setelan umum. */
+    private fun applySongParams(id: String?) {
+        val p = container.songParams.effective(id)
+        val now = exo.playbackParameters
+        if (now.speed != p.speed || now.pitch != p.pitch) {
+            exo.playbackParameters = androidx.media3.common.PlaybackParameters(p.speed, p.pitch)
+        }
+    }
+
     private fun applyNormalizer(s: com.freease.music.data.prefs.AppSettings) {
         normalizer.enabled = s.normalizeVolume
         normalizer.targetLufs = when (s.normalizeLevel) {
@@ -531,6 +542,7 @@ class PlaybackService : MediaLibraryService() {
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) container.touchInteraction()
             flushListening(reason)
             normalizer.beginTrack(newId, newId?.let(container.loudness::get))
+            applySongParams(newId)
             trackingSong = mediaItem?.let(MediaItems::toSong)
             lyricsDisplay.song.value = trackingSong
             trackingSong?.let { song -> scope.launch { container.library.touch(song) } }

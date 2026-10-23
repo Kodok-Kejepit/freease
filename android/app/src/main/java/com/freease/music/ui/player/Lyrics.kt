@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MicExternalOn
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PictureInPicture
 import androidx.compose.material.icons.rounded.Share
@@ -403,6 +404,14 @@ private fun LyricsMenu(
                 onClick = { onDismiss(); onShareCard() },
             )
         }
+        val actions = LocalActions.current
+        val vocalOff by actions.container.karaokeMode.collectAsStateWithLifecycle()
+        DropdownMenuItem(
+            text = { Text("Mode Karaoke (hilangkan vokal)") },
+            leadingIcon = { Icon(Icons.Rounded.MicExternalOn, null) },
+            trailingIcon = { if (vocalOff) Icon(Icons.Rounded.Check, null) },
+            onClick = { onDismiss(); actions.container.karaokeMode.value = !vocalOff },
+        )
         DropdownMenuItem(
             text = { Text("Karaoke per kata") },
             leadingIcon = { Icon(Icons.Rounded.Mic, null) },

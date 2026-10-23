@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.MicExternalOn
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -550,6 +551,12 @@ private fun BottomActions(
         IconButton(onClick = onSleep) { Icon(Icons.Rounded.Bedtime, "Timer tidur", tint = if (sleepActive) accent else dim) }
         IconButton(onClick = onSpeed) { Icon(Icons.Rounded.Speed, "Kecepatan", tint = if (speedChanged) accent else dim) }
         IconButton(onClick = { actions.showLyrics = true }) { Icon(Icons.Rounded.Lyrics, "Lirik", tint = dim) }
+        val karaoke by actions.container.karaokeMode.collectAsState()
+        IconButton(onClick = {
+            val on = !karaoke
+            actions.container.karaokeMode.value = on
+            actions.toast(if (on) "Mode Karaoke: vokal dihilangkan — paling bagus untuk rekaman studio stereo" else "Mode Karaoke mati")
+        }) { Icon(Icons.Rounded.MicExternalOn, "Mode Karaoke", tint = if (karaoke) accent else dim) }
         if (!song.isLive) {
             IconButton(onClick = {
                 if (downloaded) actions.toast("Sudah tersedia offline")

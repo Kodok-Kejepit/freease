@@ -2,6 +2,7 @@ package com.freease.music.ui.player
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -266,9 +267,22 @@ fun SleepTimerDialog(onDismiss: () -> Unit) {
 fun SpeedDialog(onDismiss: () -> Unit) {
     val actions = LocalActions.current
     val state by actions.player.state.collectAsState()
+    val store = actions.container.songParams
+    val song = state.song
     var speed by remember { mutableFloatStateOf(state.speed) }
     var pitch by remember { mutableFloatStateOf(state.pitch) }
+    var perSong by remember(song?.id) { mutableStateOf(song?.id?.let(store::get) != null) }
     val sliderColors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Freease.accent.primary)
+
+    fun apply(s: Float = speed, p: Float = pitch) {
+        speed = s
+        pitch = p
+        actions.player.setPlaybackParameters(s, p)
+        val params = com.freease.music.playback.SongParams.Params(s, p)
+        val id = song?.id
+        if (perSong && id != null) store.remember(id, params) else store.base = params
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Freease.colors.elevated,
@@ -279,29 +293,69 @@ fun SpeedDialog(onDismiss: () -> Unit) {
                 Slider(
                     value = speed, onValueChange = { speed = (it * 20).toInt() / 20f },
                     valueRange = 0.5f..2f, colors = sliderColors,
-                    onValueChangeFinished = { actions.player.setPlaybackParameters(speed, pitch) },
+                    onValueChangeFinished = { apply() },
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(0.75f, 1f, 1.25f, 1.5f).forEach { v ->
                         Box(
                             Modifier.clip(CircleShape)
                                 .background(if (speed == v) Freease.accent.primary else Freease.colors.card)
-                                .clickable { speed = v; actions.player.setPlaybackParameters(v, pitch) }
+                                .clickable { apply(s = v) }
                                 .padding(horizontal = 12.dp, vertical = 6.dp),
-                        ) { Text("${v}x", style = MaterialTheme.typography.labelMedium) }
+                        ) { Text("${v}x", style = MaterialTheme.typography.labelMedium, color = if (speed == v) Color.Black else Color.White) }
                     }
                 }
                 Spacer(Modifier.height(16.dp))
-                Text("Nada ${String.format(Locale.US, "%.2f", pitch)}", style = MaterialTheme.typography.titleSmall)
+                val semis = com.freease.music.playback.SongParams.semitones(pitch)
+                Text(
+                    "Nada ${String.format(Locale.US, "%.2f", pitch)}" + if (semis != 0) "  (kunci ${if (semis > 0) "+" else ""}$semis)" else "",
+                    style = MaterialTheme.typography.titleSmall,
+                )
                 Slider(
                     value = pitch, onValueChange = { pitch = (it * 20).toInt() / 20f },
                     valueRange = 0.5f..2f, colors = sliderColors,
-                    onValueChangeFinished = { actions.player.setPlaybackParameters(speed, pitch) },
+                    onValueChangeFinished = { apply() },
                 )
+                // Naik/turun satu kunci (semitone) — pas untuk menyesuaikan karaoke dengan suaramu.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Kunci", style = MaterialTheme.typography.labelLarge, color = Freease.colors.muted)
+                    listOf(-1 to "−1", 1 to "+1").forEach { (d, label) ->
+                        Box(
+                            Modifier.clip(CircleShape).background(Freease.colors.card)
+                                .clickable { apply(p = com.freease.music.playback.SongParams.pitchOf((semis + d).coerceIn(-12, 12))) }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                        ) { Text(label, style = MaterialTheme.typography.labelMedium) }
+                    }
+                }
+                if (song != null && !song.isLive) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Ingat untuk lagu ini", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Otomatis dipakai setiap \"${song.title}\" diputar",
+                                style = MaterialTheme.typography.bodySmall, color = Freease.colors.muted, maxLines = 2,
+                            )
+                        }
+                        Switch(
+                            perSong,
+                            { on ->
+                                perSong = on
+                                if (on) {
+                                    store.remember(song.id, com.freease.music.playback.SongParams.Params(speed, pitch))
+                                } else {
+                                    store.forget(song.id)
+                                    store.base.let { apply(it.speed, it.pitch) }
+                                }
+                            },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Freease.accent.primary),
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { speed = 1f; pitch = 1f; actions.player.setPlaybackParameters(1f, 1f) }) {
+            TextButton(onClick = { apply(1f, 1f) }) {
                 Text("Normal", color = Freease.accent.primary)
             }
         },
