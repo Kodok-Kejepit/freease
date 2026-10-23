@@ -96,6 +96,11 @@ class AppContainer(private val context: Context) {
     /** true selama layar Freease terlihat (untuk menyembunyikan lirik melayang). */
     val appVisible = MutableStateFlow(false)
 
+    /** Pencarian yang diminta layar lain (mis. hasil Kenali Lagu) untuk dijalankan tab Cari. */
+    val pendingSearch = MutableStateFlow<String?>(null)
+    val recognizer by lazy { com.freease.music.data.recognize.SongRecognizer(httpClient) }
+    val recognizeHistory by lazy { com.freease.music.data.recognize.RecognizeHistory(context) }
+
     val mediaCache: SimpleCache by lazy {
         val mb = settings.current.cacheSizeMb
         val evictor = if (mb <= 0) NoOpCacheEvictor() else LeastRecentlyUsedCacheEvictor(mb * 1024L * 1024L)

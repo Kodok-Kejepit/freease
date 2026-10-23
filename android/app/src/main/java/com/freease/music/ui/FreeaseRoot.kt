@@ -138,6 +138,9 @@ fun FreeaseRoot(container: AppContainer, onActionsReady: (AppActions) -> Unit) {
                     composable(Routes.MIX, arguments = listOf(navArgument("index") { type = NavType.IntType })) {
                         com.freease.music.ui.screens.DailyMixScreen(it.arguments?.getInt("index") ?: 0)
                     }
+                    composable(Routes.RECOGNIZE, arguments = listOf(navArgument("auto") { type = NavType.BoolType; defaultValue = false })) {
+                        com.freease.music.ui.screens.RecognizeScreen(it.arguments?.getBoolean("auto") ?: false)
+                    }
                     composable(Routes.ALARMS) { com.freease.music.ui.screens.AlarmScreen() }
                     composable(Routes.CAR) { com.freease.music.ui.screens.CarModeScreen() }
                     composable(Routes.LOCAL_MUSIC) { com.freease.music.ui.screens.LocalMusicScreen() }

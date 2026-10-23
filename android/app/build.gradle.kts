@@ -52,6 +52,7 @@ android {
                 test.systemProperty("robolectric.offline", "true")
                 test.systemProperty("robolectric.dependency.dir", it)
             }
+            project.findProperty("recognize.pcm")?.let { test.systemProperty("recognize.pcm", it) }
             project.findProperty("shotsDir")?.let {
                 test.systemProperty("shots.dir", it)
                 test.systemProperty("roborazzi.test.record", "true")

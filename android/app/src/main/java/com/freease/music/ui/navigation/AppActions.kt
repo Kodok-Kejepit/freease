@@ -42,11 +42,13 @@ object Routes {
     const val CAR = "car"
     const val ALARMS = "alarms"
     const val MIX = "mix/{index}"
+    const val RECOGNIZE = "recognize?auto={auto}"
 
     fun artist(url: String) = "artist?url=${Uri.encode(url)}"
     fun playlist(url: String) = "playlist?url=${Uri.encode(url)}"
     fun local(id: Long) = "local/$id"
     fun mix(index: Int) = "mix/$index"
+    fun recognize(auto: Boolean = false) = "recognize?auto=$auto"
     fun import(link: String = "") = "import?link=${Uri.encode(link)}"
     fun category(title: String, query: String) = "category?title=${Uri.encode(title)}&query=${Uri.encode(query)}"
 }
@@ -84,6 +86,17 @@ class AppActions(
     fun openPlaylist(url: String) = navigate(Routes.playlist(url))
     fun openLocal(id: Long) = navigate(Routes.local(id))
     fun openCategory(title: String, query: String) = navigate(Routes.category(title, query))
+
+    /** Buka tab Cari dan langsung jalankan pencarian [query]. */
+    fun searchFor(query: String) {
+        container.pendingSearch.value = query
+        playerExpanded = false
+        nav.navigate(Routes.SEARCH) {
+            popUpTo(Routes.HOME) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
 
     fun showMenu(song: Song, playlistId: Long? = null, queueIndex: Int? = null) {
         menu = SongMenuRequest(song, playlistId, queueIndex)

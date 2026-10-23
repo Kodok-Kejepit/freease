@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -202,12 +203,25 @@ fun SearchScreen() {
         }
     }
 
+    val pending by actions.container.pendingSearch.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(pending) {
+        val q = pending ?: return@LaunchedEffect
+        actions.container.pendingSearch.value = null
+        vm.query.value = q
+        submit(q)
+    }
+
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Text(
-            "Cari",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 12.dp),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Cari",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.weight(1f).padding(start = 16.dp, top = 14.dp, bottom = 12.dp),
+            )
+            IconButton(onClick = { actions.navigate(com.freease.music.ui.navigation.Routes.recognize()) }, modifier = Modifier.padding(end = 6.dp)) {
+                Icon(androidx.compose.material.icons.Icons.Rounded.GraphicEq, "Kenali lagu")
+            }
+        }
         SearchField(
             value = query,
             onValueChange = {

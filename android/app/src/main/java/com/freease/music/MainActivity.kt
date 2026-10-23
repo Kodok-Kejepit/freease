@@ -74,6 +74,10 @@ class MainActivity : ComponentActivity() {
             a.playerExpanded = true
             return
         }
+        if (intent.getBooleanExtra(EXTRA_RECOGNIZE, false)) {
+            a.navigate(com.freease.music.ui.navigation.Routes.recognize(auto = true))
+            return
+        }
         if (intent.getBooleanExtra(EXTRA_OPEN_ALARMS, false)) {
             a.navigate(com.freease.music.ui.navigation.Routes.ALARMS)
             return
@@ -93,5 +97,6 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_OPEN_PLAYER = "open_player"
         const val EXTRA_OPEN_ALARMS = "open_alarms"
+        const val EXTRA_RECOGNIZE = "recognize"
     }
 }

@@ -45,6 +45,20 @@ object Format {
         else -> "$b B"
     }
 
+    /** "Hari ini", "Kemarin", "3 hari lalu", atau tanggal. */
+    fun relativeDay(ts: Long): String {
+        val cal = Calendar.getInstance()
+        fun day(t: Long): Long { cal.timeInMillis = t; return cal.get(Calendar.YEAR) * 400L + cal.get(Calendar.DAY_OF_YEAR) }
+        val today = day(System.currentTimeMillis())
+        val d = day(ts)
+        return when {
+            d == today -> "Hari ini"
+            d == today - 1 -> "Kemarin"
+            today - d in 2..6 -> "${today - d} hari lalu"
+            else -> java.text.SimpleDateFormat("d MMM yyyy", Locale("id")).format(java.util.Date(ts))
+        }
+    }
+
     fun greeting(): String = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
         in 4..10 -> "Selamat pagi"
         in 11..14 -> "Selamat siang"

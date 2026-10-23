@@ -18,6 +18,8 @@
         android:name="android.permission.SCHEDULE_EXACT_ALARM"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Kenali lagu (hanya saat tombol ditekan) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Memutar lagu yang tersimpan di HP -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission
@@ -94,6 +96,17 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_player_info" />
         </receiver>
+
+        <service
+            android:name=".data.recognize.RecognizeTile"
+            android:exported="true"
+            android:icon="@drawable/ic_notification"
+            android:label="Kenali lagu"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
         <receiver
             android:name=".data.alarm.AlarmReceiver"
