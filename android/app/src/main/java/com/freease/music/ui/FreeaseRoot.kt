@@ -225,6 +225,15 @@ fun FreeaseRoot(container: AppContainer, onActionsReady: (AppActions) -> Unit) {
                     }
                 }
 
+                // Pengingat izin saat app dibuka (setelah laporan crash, kalau ada).
+                LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(1_200)
+                    if (crashReport == null && com.freease.music.ui.components.AppPermissions.shouldPrompt(context)) actions.permissions = false
+                }
+                actions.permissions?.let { all ->
+                    com.freease.music.ui.components.PermissionSheet(showAll = all) { actions.permissions = null }
+                }
+
                 if (actions.showQueue) QueueSheet { actions.showQueue = false }
                 actions.menu?.let { SongMenuSheet(it) { actions.menu = null } }
                 actions.addToPlaylist?.let { AddToPlaylistSheet(it) { actions.addToPlaylist = null } }

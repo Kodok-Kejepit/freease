@@ -20,6 +20,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Kenali lagu (hanya saat tombol ditekan) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Minta dikecualikan dari optimasi baterai (musik & alarm tetap jalan saat layar mati) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Memutar lagu yang tersimpan di HP -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission

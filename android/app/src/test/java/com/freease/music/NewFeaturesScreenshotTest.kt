@@ -118,17 +118,18 @@ class NewFeaturesScreenshotTest {
                                 val mixes by c.dailyMix.mixes.collectAsState()
                                 DailyMixRow(mixes)
                             }
+                            11 -> com.freease.music.ui.components.PermissionSheet(showAll = false) {}
                             else -> Unit
                         }
                     }
                 }
             }
         }
-        val names = (1..8).map { "wrapped_$it" } + listOf("recognize", "alarm", "dailymix")
+        val names = (1..8).map { "wrapped_$it" } + listOf("recognize", "alarm", "dailymix", "permissions")
         for (i in names.indices) {
             compose.runOnUiThread { mode.intValue = i }
             settle(2_500)
-            compose.onRoot().captureRoboImage("$out/new_${names[i]}.png")
+            if (names[i] == "permissions") com.github.takahirom.roborazzi.captureScreenRoboImage("$out/new_${names[i]}.png") else compose.onRoot().captureRoboImage("$out/new_${names[i]}.png")
         }
     }
 }

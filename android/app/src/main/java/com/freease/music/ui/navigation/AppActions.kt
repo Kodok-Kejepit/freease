@@ -73,6 +73,8 @@ class AppActions(
     var playerExpanded by mutableStateOf(false)
     var showQueue by mutableStateOf(false)
     var showLyrics by mutableStateOf(false)
+    /** Lembar izin: null = tertutup, false = hanya yang belum aktif, true = semua izin + statusnya. */
+    var permissions by mutableStateOf<Boolean?>(null)
 
     fun toast(text: String) = container.emitMessage(text)
 

@@ -361,6 +361,15 @@ fun SettingsScreen() {
                 importLauncher.launch(arrayOf("*/*"))
             })
         }
+        item {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val missing = remember(s) { com.freease.music.ui.components.AppPermissions.missing(ctx).size }
+            Item(
+                "Izin aplikasi",
+                if (missing == 0) "Semua izin aktif" else "$missing izin belum aktif — ketuk untuk mengaktifkan",
+                onClick = { actions.permissions = true },
+            )
+        }
         item { Group("Tentang") }
         item { Item("Freease ${BuildConfig.VERSION_NAME}", "Pemutar musik pribadi tanpa iklan • by Kodok-Kejepit") }
         item { Item("Sumber data", "YouTube & YouTube Music (NewPipeExtractor) • Lirik: LRCLIB") }
