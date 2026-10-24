@@ -53,6 +53,8 @@ android {
                 test.systemProperty("robolectric.dependency.dir", it)
             }
             project.findProperty("recognize.pcm")?.let { test.systemProperty("recognize.pcm", it) }
+            project.findProperty("karaoke.pcm")?.let { test.systemProperty("karaoke.pcm", it) }
+            project.findProperty("karaoke.mix")?.let { test.systemProperty("karaoke.mix", it) }
             project.findProperty("shotsDir")?.let {
                 test.systemProperty("shots.dir", it)
                 test.systemProperty("roborazzi.test.record", "true")
